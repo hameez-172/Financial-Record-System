@@ -75,42 +75,67 @@ with tab2:
     mask = (df_temp['Date'].dt.date >= start_date) & (df_temp['Date'].dt.date <= end_date)
     df_filtered = df_temp.loc[mask]
 
-    st.subheader("Recent Deals (Click cell to Edit)")
-    edited_df = st.data_editor(df_filtered, use_container_width=True, hide_index=True)
-    
-    if not edited_df.equals(df_filtered):
-        # Update Logic
-        edited_df['Remaining'] = edited_df['Deal Value'] - edited_df['Sent Payment']
-        edited_df['Profit'] = edited_df['Deal Value'] - edited_df['Cost']
-        edited_df['Status'] = edited_df['Remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
-        st.session_state.business_df.update(edited_df)
-        st.rerun()
+    st.subheader("📋 Recent Deals (Click cell to Edit)")
 
-    def highlight_remaining(val):
-        color = '#8b0000' if isinstance(val, (int, float)) and val > 0 else ''
-        return f'background-color: {color}'
-    
-    st.dataframe(edited_df.style.format({'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 'Remaining': '{:,}', 'Profit': '{:,}'}).map(highlight_remaining, subset=['Remaining']), use_container_width=True)
+# Editable Table
+edited_df = st.data_editor(
+    df_filtered,
+    use_container_width=True,
+    hide_index=True,
+    num_rows="fixed",
+    key="deal_editor"
+)
 
-
-
-# After editing, apply the features
-for i in range(len(edited_df)):
-    if edited_df.at[i, 'Remaining'] > 0:
-        # Highlight only the cell in the Remaining column
-        edited_df.at[i, 'Remaining'] = f"<span style='background-color: red;'>{edited_df.at[i, 'Remaining']}</span>"
-    else:
-        # Remove highlight if zero
-        edited_df.at[i, 'Remaining'] = edited_df.at[i, 'Remaining']  # Keep value as is
-        edited_df.at[i, 'Status'] = 'Paid'  # Automatically set status to Paid
-
-# Apply the changes to session state
+# If user edits anything
 if not edited_df.equals(df_filtered):
-    edited_df['Remaining'] = edited_df['Deal Value'] - edited_df['Sent Payment']
-    edited_df['Profit'] = edited_df['Deal Value'] - edited_df['Cost']
-    edited_df['Status'] = edited_df['Remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
-    st.session_state.business_df.update(edited_df)
-    st.rerun() # --- TAB 3: Business Analytics ---
+
+    # Recalculate Remaining and Profit
+    edited_df["Remaining"] = (
+        edited_df["Deal Value"] - edited_df["Sent Payment"]
+    )
+
+    edited_df["Profit"] = (
+        edited_df["Deal Value"] - edited_df["Cost"]
+    )
+
+    # Auto Update Status
+    edited_df["Status"] = edited_df["Remaining"].apply(
+        lambda x: "Paid" if x <= 0 else "Pending"
+    )
+
+    # Update only edited rows
+    st.session_state.business_df.loc[edited_df.index] = edited_df
+
+    st.rerun()
+
+
+# ---------- Highlight Remaining Amount ----------
+def highlight_remaining(row):
+    styles = [""] * len(row)
+
+    remaining_col = row.index.get_loc("Remaining")
+
+    if row["Remaining"] > 0:
+        styles[remaining_col] = "background-color:#ff4b4b;color:white;font-weight:bold;"
+    else:
+        styles[remaining_col] = ""
+
+    return styles
+
+
+# Show ONLY ONE TABLE
+st.dataframe(
+    edited_df.style
+        .apply(highlight_remaining, axis=1)
+        .format({
+            "Deal Value": "{:,.0f}",
+            "Cost": "{:,.0f}",
+            "Sent Payment": "{:,.0f}",
+            "Remaining": "{:,.0f}",
+            "Profit": "{:,.0f}",
+        }),
+    use_container_width=True
+) # --- TAB 3: Business Analytics ---
 with tab3:
     st.title("📊 Performance Insights")
     if not st.session_state.business_df.empty:
