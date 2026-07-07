@@ -42,41 +42,47 @@ with tab1:
     st.dataframe(st.session_state.home_df.style.format({'Amount': '{:,}'}), use_container_width=True)
 
 # --- TAB 2: Business Deals ---
-# --- TAB 2: Business Deals (Final Fixed Version) ---
+# --- TAB 2: Business Deals (Final Clean Version) ---
     st.subheader("📋 Client's Data (Click cell to Edit)")
     
-    # 1. Edit ke liye sirf DataFrame use karein (Bina Style ke)
+    # 1. Filter logic
+    df_temp = st.session_state.business_df.copy()
+    df_temp['Date'] = pd.to_datetime(df_temp['Date'])
+    mask = (df_temp['Date'].dt.date >= start_date) & (df_temp['Date'].dt.date <= end_date)
+    df_filtered = df_temp.loc[mask]
+
+    # 2. Highlight Logic Function
+    def highlight_remaining(val):
+        color = '#8b0000' if isinstance(val, (int, float)) and val > 0 else ''
+        return f'background-color: {color}'
+
+    # 3. Sirf Data Editor (Ek hi table)
+    # Highlight ke liye hum display format use karenge
+    styled_df = df_filtered.style.format({
+        'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 
+        'Remaining': '{:,}', 'Profit': '{:,}'
+    }).map(highlight_remaining, subset=['Remaining'])
+
+    # Editable Editor (Jo changes accept karega)
     edited_df = st.data_editor(
         df_filtered,
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
+        column_config={
+            "Remaining": st.column_config.NumberColumn(format="%d"),
+        }
     )
-    
-    # 2. Sync Logic (Isme .data ka use nahi hoga)
+
+    # 4. Sync edits
     if not edited_df.equals(df_filtered):
         # Calculation update
         edited_df['Remaining'] = edited_df['Deal Value'] - edited_df['Sent Payment']
         edited_df['Profit'] = edited_df['Deal Value'] - edited_df['Cost']
         edited_df['Status'] = edited_df['Remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
         
-        # Session state update
+        # Main state update
         st.session_state.business_df.update(edited_df)
-        st.rerun()
-
-    # 3. Highlighted Table (Sirf Display ke liye)
-    def highlight_remaining(val):
-        color = '#8b0000' if isinstance(val, (int, float)) and val > 0 else ''
-        return f'background-color: {color}'
-    
-    st.subheader("📊 Recent Deals View")
-    st.dataframe(
-        df_filtered.style.format({
-            'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 
-            'Remaining': '{:,}', 'Profit': '{:,}'
-        }).map(highlight_remaining, subset=['Remaining']), 
-        use_container_width=True
-    )
-# --- TAB 3 ---
+        st.rerun()# --- TAB 3 ---
 with tab3:
     st.title("📊 Performance Insights")
     if not st.session_state.business_df.empty:
