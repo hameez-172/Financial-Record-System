@@ -12,7 +12,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- Session State ---
+# --- Session State Initialization ---
 if 'home_df' not in st.session_state:
     st.session_state.home_df = pd.DataFrame({'Recipient': ['Anoushay', 'Hameez', 'Talha', 'Self', 'General House', 'Sent to Home'], 'Amount': [0, 0, 0, 0, 0, 0]})
 
@@ -21,10 +21,12 @@ if 'business_df' not in st.session_state:
 
 tab1, tab2, tab3 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "📊 Business Analytics"])
 
-# --- TAB 1 ---
+# --- TAB 1: Home Finance ---
 with tab1:
     st.title("🏡 Home Finance Tracker")
-    totals = st.session_state.home_df.groupby('Recipient')['Amount'].sum()
+    df = st.session_state.home_df
+    totals = df.groupby('Recipient')['Amount'].sum()
+    
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Anoushay", f"Rs {int(totals.get('Anoushay', 0)):,}")
     c2.metric("Hameez", f"Rs {int(totals.get('Hameez', 0)):,}")
@@ -42,47 +44,54 @@ with tab1:
     st.dataframe(st.session_state.home_df.style.format({'Amount': '{:,}'}), use_container_width=True)
 
 # --- TAB 2: Business Deals ---
-# --- TAB 2: Business Deals (Final Clean Version) ---
-    st.subheader("📋 Client's Data (Click cell to Edit)")
+with tab2:
+    st.title("➕ Register & Manage Medical Deal")
+    with st.form("biz_form", clear_on_submit=True):
+        c1, c2, c3 = st.columns(3)
+        client = c1.text_input("Client Name")
+        equip = c2.text_input("Equipment")
+        team_member = c3.text_input("Team Member (Optional)")
+        c4, c5, c6 = st.columns(3)
+        deal_val = c4.number_input("Total Deal Value", min_value=0, step=1)
+        cost = c5.number_input("Actual Cost", min_value=0, step=1)
+        sent_pay = c6.number_input("Payment Sent", min_value=0, step=1)
+        if st.form_submit_button("Log Deal"):
+            remaining = int(deal_val - sent_pay)
+            profit = int(deal_val - cost)
+            status = "Pending" if remaining > 0 else "Paid"
+            new_row = pd.DataFrame([{'Date': pd.Timestamp.now().strftime("%Y-%m-%d"), 'Client': client, 'Equipment': equip, 'Deal Value': int(deal_val), 'Cost': int(cost), 'Sent Payment': int(sent_pay), 'Remaining': remaining, 'Profit': profit, 'Team Member': team_member if team_member else "N/A", 'Status': status}])
+            st.session_state.business_df = pd.concat([st.session_state.business_df, new_row], ignore_index=True)
+            st.rerun()
     
-    # 1. Filter logic
+    st.subheader("🔍 Filter Deals by Date")
+    c_f1, c_f2 = st.columns(2)
+    start_date = c_f1.date_input("Start Date", value=pd.Timestamp("2026-01-01"))
+    end_date = c_f2.date_input("End Date", value=pd.Timestamp.now())
+    
+    # Filter Data
     df_temp = st.session_state.business_df.copy()
     df_temp['Date'] = pd.to_datetime(df_temp['Date'])
     mask = (df_temp['Date'].dt.date >= start_date) & (df_temp['Date'].dt.date <= end_date)
     df_filtered = df_temp.loc[mask]
 
-    # 2. Highlight Logic Function
-    def highlight_remaining(val):
-        color = '#8b0000' if isinstance(val, (int, float)) and val > 0 else ''
-        return f'background-color: {color}'
-
-    # 3. Sirf Data Editor (Ek hi table)
-    # Highlight ke liye hum display format use karenge
-    styled_df = df_filtered.style.format({
-        'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 
-        'Remaining': '{:,}', 'Profit': '{:,}'
-    }).map(highlight_remaining, subset=['Remaining'])
-
-    # Editable Editor (Jo changes accept karega)
-    edited_df = st.data_editor(
-        df_filtered,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Remaining": st.column_config.NumberColumn(format="%d"),
-        }
-    )
-
-    # 4. Sync edits
+    st.subheader("Recent Deals (Click cell to Edit)")
+    edited_df = st.data_editor(df_filtered, use_container_width=True, hide_index=True)
+    
     if not edited_df.equals(df_filtered):
-        # Calculation update
+        # Update Logic
         edited_df['Remaining'] = edited_df['Deal Value'] - edited_df['Sent Payment']
         edited_df['Profit'] = edited_df['Deal Value'] - edited_df['Cost']
         edited_df['Status'] = edited_df['Remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
-        
-        # Main state update
         st.session_state.business_df.update(edited_df)
-        st.rerun()# --- TAB 3 ---
+        st.rerun()
+
+    def highlight_remaining(val):
+        color = '#8b0000' if isinstance(val, (int, float)) and val > 0 else ''
+        return f'background-color: {color}'
+    
+    st.dataframe(edited_df.style.format({'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 'Remaining': '{:,}', 'Profit': '{:,}'}).map(highlight_remaining, subset=['Remaining']), use_container_width=True)
+
+# --- TAB 3: Business Analytics ---
 with tab3:
     st.title("📊 Performance Insights")
     if not st.session_state.business_df.empty:
@@ -92,3 +101,15 @@ with tab3:
         m2.metric("Total Profit", f"Rs {int(df_biz['Profit'].sum()):,}")
         m3.metric("Outstanding", f"Rs {int(df_biz['Remaining'].sum()):,}")
         m4.metric("Margin", f"{((df_biz['Profit'].sum()/df_biz['Deal Value'].sum())*100):.1f}%" if df_biz['Deal Value'].sum() > 0 else "0%")
+
+        col_left, col_right = st.columns(2)
+        with col_left:
+            st.subheader("Cost vs Profit")
+            fig = px.bar(df_biz, x='Equipment', y=['Cost', 'Profit'], barmode='group', template="plotly_dark")
+            st.plotly_chart(fig, use_container_width=True)
+        with col_right:
+            st.subheader("Remaining Payment")
+            fig_pie = px.pie(df_biz, values='Remaining', names='Client', hole=0.5, template="plotly_dark")
+            st.plotly_chart(fig_pie, use_container_width=True)
+    else:
+        st.info("Log a deal to see analytics.")
