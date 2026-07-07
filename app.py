@@ -74,7 +74,7 @@ with tab2:
     mask = (df_temp['Date'].dt.date >= start_date) & (df_temp['Date'].dt.date <= end_date)
     df_filtered = df_temp.loc[mask]
 
-    st.subheader("Recent Deals (Click cell to Edit)")
+    st.subheader("Client's Data")
     edited_df = st.data_editor(df_filtered, use_container_width=True, hide_index=True)
     
     if not edited_df.equals(df_filtered):
@@ -89,8 +89,7 @@ with tab2:
         color = '#8b0000' if isinstance(val, (int, float)) and val > 0 else ''
         return f'background-color: {color}'
     
-    st.dataframe(edited_df.style.format({'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 'Remaining': '{:,}', 'Profit': '{:,}'}).map(highlight_remaining, subset=['Remaining']), use_container_width=True)
-
+  
 # --- TAB 3: Business Analytics ---
 with tab3:
     st.title("📊 Performance Insights")
