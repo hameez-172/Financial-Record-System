@@ -47,6 +47,7 @@ with tab1:
 # --- TAB 2: Business Deals ---
 with tab2:
     st.title("➕ Register & Manage Medical Deal")
+    # [Form logic same yahan rahegi jaisa aapne pehle likha tha]
     with st.form("biz_form", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
         client = c1.text_input("Client Name")
@@ -63,45 +64,32 @@ with tab2:
             new_row = pd.DataFrame([{'Date': pd.Timestamp.now().strftime("%Y-%m-%d"), 'Client': client, 'Equipment': equip, 'Deal Value': int(deal_val), 'Cost': int(cost), 'Sent Payment': int(sent_pay), 'Remaining': remaining, 'Profit': profit, 'Team Member': team_member if team_member else "N/A", 'Status': status}])
             st.session_state.business_df = pd.concat([st.session_state.business_df, new_row], ignore_index=True)
             st.rerun()
+
+    st.subheader("📋 Recent Deals")
     
-    st.subheader("🔍 Filter Deals by Date")
-    c_f1, c_f2 = st.columns(2)
-    start_date = c_f1.date_input("Start Date", value=pd.Timestamp("2026-01-01"))
-    end_date = c_f2.date_input("End Date", value=pd.Timestamp.now())
-    
-    df_temp = st.session_state.business_df.copy()
-    df_temp['Date'] = pd.to_datetime(df_temp['Date'])
-    mask = (df_temp['Date'].dt.date >= start_date) & (df_temp['Date'].dt.date <= end_date)
-    df_filtered = df_temp.loc[mask]
+    # Editor for editing
+    edited_df = st.data_editor(st.session_state.business_df, use_container_width=True, hide_index=True)
 
-    st.subheader("📋 Manage Deals")
-
-    # Sirf ek editor jo edit bhi karega aur display bhi
-    edited_df = st.data_editor(
-        df_filtered,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Status": st.column_config.TextColumn(disabled=True), # Status auto update hoga
-            "Remaining": st.column_config.NumberColumn(disabled=True), # Auto calculate hoga
-            "Profit": st.column_config.NumberColumn(disabled=True)
-        }
-    )
-
-    # Logic: Agar user ne kuch edit kiya (Jaise Sent Payment change ki)
-    if not edited_df.equals(df_filtered):
-        # Calculation
+    # Logic to update values
+    if not edited_df.equals(st.session_state.business_df):
         edited_df["Remaining"] = edited_df["Deal Value"] - edited_df["Sent Payment"]
         edited_df["Profit"] = edited_df["Deal Value"] - edited_df["Cost"]
         edited_df["Status"] = edited_df["Remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
-        
-        # Highlight Logic
-        def highlight_remaining(row):
-            return ["background-color: #ff4b4b; color: white;" if row["Remaining"] > 0 else "" for _ in row]
+        st.session_state.business_df = edited_df
+        st.rerun()
 
-        # Update Session State
-        st.session_state.business_df.update(edited_df)
-        st.rerun()# --- TAB 3: Business Analytics ---
+    # Highlight Function
+    def highlight_row(val):
+        color = '#ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
+        return f'background-color: {color}'
+
+    # Final Display Table with Highlighting
+    st.subheader("🔍 Current Deal Status")
+    st.dataframe(
+        st.session_state.business_df.style.map(highlight_row, subset=['Remaining']),
+        use_container_width=True
+    )
+    # --- TAB 3: Business Analytics ---
 with tab3:
     st.title("📊 Performance Insights")
     if not st.session_state.business_df.empty:
