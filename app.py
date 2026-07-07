@@ -43,7 +43,7 @@ with tab1:
                 st.rerun()
     st.dataframe(st.session_state.home_df, use_container_width=True)
 
-# --- TAB 2: Business Deals ---
+# --- TAB 2: Business Deals (Corrected Highlight Logic) ---
 with tab2:
     st.title("➕ Register Medical Deal")
     with st.form("biz_form", clear_on_submit=True):
@@ -72,30 +72,9 @@ with tab2:
     
     st.subheader("Recent Deals")
     
-    def highlight_pending(row):
-        return ['background-color: #8b0000' if row['Remaining'] > 0 else '' for _ in row]
+    # Logic: Agar Remaining value 0 se zyada hai to row ko red highlight karein
+    def highlight_row(row):
+        color = '#8b0000' if row['Remaining'] > 0 else ''
+        return [f'background-color: {color}' for _ in row]
     
-    st.dataframe(st.session_state.business_df.style.apply(highlight_pending, axis=1), use_container_width=True)
-
-# --- TAB 3: Business Analytics ---
-with tab3:
-    st.title("📊 Performance Insights")
-    if not st.session_state.business_df.empty:
-        df_biz = st.session_state.business_df
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Revenue", f"Rs {df_biz['Deal Value'].sum():,}")
-        m2.metric("Total Profit", f"Rs {df_biz['Profit'].sum():,}")
-        m3.metric("Outstanding Payment", f"Rs {df_biz['Remaining'].sum():,}")
-        m4.metric("Margin", f"{((df_biz['Profit'].sum()/df_biz['Deal Value'].sum())*100):.1f}%" if df_biz['Deal Value'].sum() > 0 else "0%")
-
-        col_left, col_right = st.columns(2)
-        with col_left:
-            st.subheader("Cost vs Profit")
-            fig = px.bar(df_biz, x='Equipment', y=['Cost', 'Profit'], barmode='group', template="plotly_dark")
-            st.plotly_chart(fig, use_container_width=True)
-        with col_right:
-            st.subheader("Remaining Payment by Client")
-            fig_pie = px.pie(df_biz, values='Remaining', names='Client', hole=0.5, template="plotly_dark")
-            st.plotly_chart(fig_pie, use_container_width=True)
-    else:
-        st.info("Log a deal to see analytics.")
+    st.dataframe(st.session_state.business_df.style.apply(highlight_row, axis=1), use_container_width=True)
