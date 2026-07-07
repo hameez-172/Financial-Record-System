@@ -77,63 +77,50 @@ with tab2:
 
     st.subheader("📋 Recent Deals (Click cell to Edit)")
 
-# Editable Table
-edited_df = st.data_editor(
-    df_filtered,
-    use_container_width=True,
-    hide_index=True,
-    num_rows="fixed",
-    key="deal_editor"
-)
-
-# If user edits anything
-if not edited_df.equals(df_filtered):
-
-    # Recalculate Remaining and Profit
-    edited_df["Remaining"] = edited_df["Deal Value"] - edited_df["Sent Payment"]
-edited_df["Profit"] = edited_df["Deal Value"] - edited_df["Cost"]
-edited_df["Status"] = edited_df["Remaining"].apply(
-    lambda x: "Paid" if x <= 0 else "Pending"
-)
-    # Auto Update Status
-    edited_df["Status"] = edited_df["Remaining"].apply(
-        lambda x: "Paid" if x <= 0 else "Pending"
+    # Editable Table
+    edited_df = st.data_editor(
+        df_filtered,
+        use_container_width=True,
+        hide_index=True,
+        num_rows="fixed",
+        key="deal_editor"
     )
 
-for i in range(len(edited_df)):
-    if edited_df.at[i, "Remaining"] == 0:
-        edited_df.at[i, "Status"] = "Paid"
-    # Update only edited rows
-    st.session_state.business_df.update(edited_df)
-st.rerun()
+    # If user edits anything
+    if not edited_df.equals(df_filtered):
+        # Recalculate Remaining and Profit
+        edited_df["Remaining"] = edited_df["Deal Value"] - edited_df["Sent Payment"]
+        edited_df["Profit"] = edited_df["Deal Value"] - edited_df["Cost"]
+        edited_df["Status"] = edited_df["Remaining"].apply(
+            lambda x: "Paid" if x <= 0 else "Pending"
+        )
+        # Update session state
+        st.session_state.business_df.update(edited_df)
+        st.rerun()
 
-# ---------- Highlight Remaining Amount ----------
-def highlight_remaining(row):
-    styles = [""] * len(row)
+    # ---------- Highlight Remaining Amount ----------
+    def highlight_remaining(row):
+        styles = [""] * len(row)
+        remaining_col = row.index.get_loc("Remaining")
+        if row["Remaining"] > 0:
+            styles[remaining_col] = "background-color:#ff4b4b;color:white;font-weight:bold;"
+        else:
+            styles[remaining_col] = ""
+        return styles
 
-    remaining_col = row.index.get_loc("Remaining")
-
-    if row["Remaining"] > 0:
-        styles[remaining_col] = "background-color:#ff4b4b;color:white;font-weight:bold;"
-    else:
-        styles[remaining_col] = ""
-
-    return styles
-
-
-# Show ONLY ONE TABLE
-st.dataframe(
-    edited_df.style
-        .apply(highlight_remaining, axis=1)
-        .format({
-            "Deal Value": "{:,.0f}",
-            "Cost": "{:,.0f}",
-            "Sent Payment": "{:,.0f}",
-            "Remaining": "{:,.0f}",
-            "Profit": "{:,.0f}",
-        }),
-    use_container_width=True
-) # --- TAB 3: Business Analytics ---
+    # Show ONLY ONE TABLE
+    st.dataframe(
+        edited_df.style
+            .apply(highlight_remaining, axis=1)
+            .format({
+                "Deal Value": "{:,.0f}",
+                "Cost": "{:,.0f}",
+                "Sent Payment": "{:,.0f}",
+                "Remaining": "{:,.0f}",
+                "Profit": "{:,.0f}",
+            }),
+        use_container_width=True
+    )# --- TAB 3: Business Analytics ---
 with tab3:
     st.title("📊 Performance Insights")
     if not st.session_state.business_df.empty:
