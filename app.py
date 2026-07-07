@@ -39,7 +39,7 @@ with tab1:
             recipient = col_a.selectbox("Who received it?", ["Anoushay", "Hameez", "Talha", "Self", "General House", "Sent to Home"])
             amount = col_b.number_input("Amount (Rs)", min_value=0, step=1)
             if st.form_submit_button("Update Home Finance"):
-                st.session_state.home_df = pd.concat([st.session_state.home_df, pd.DataFrame({'Recipient': [recipient], 'Amount': [amount]})], ignore_index=True)
+                st.session_state.home_df = pd.concat([st.session_state.home_df, pd.DataFrame({'Recipient': [recipient], 'Amount': [int(amount)]})], ignore_index=True)
                 st.rerun()
     st.dataframe(st.session_state.home_df.style.format({'Amount': '{:,}'}), use_container_width=True)
 
@@ -72,13 +72,14 @@ with tab2:
     
     st.subheader("Recent Deals")
     
-    # Highlight logic
+    # Logic for display: Copying to avoid changing raw data
+    display_df = st.session_state.business_df.copy()
+    
     def highlight_remaining(val):
         color = '#8b0000' if isinstance(val, (int, float)) and val > 0 else ''
         return f'background-color: {color}'
     
-    # Decimal hatane ke liye style format ka use
-    st.dataframe(st.session_state.business_df.style.format({
+    st.dataframe(display_df.style.format({
         'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 'Remaining': '{:,}', 'Profit': '{:,}'
     }).map(highlight_remaining, subset=['Remaining']), use_container_width=True)
 
@@ -88,9 +89,9 @@ with tab3:
     if not st.session_state.business_df.empty:
         df_biz = st.session_state.business_df
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Total Revenue", f"Rs {df_biz['Deal Value'].sum():,}")
-        m2.metric("Total Profit", f"Rs {df_biz['Profit'].sum():,}")
-        m3.metric("Outstanding Payment", f"Rs {df_biz['Remaining'].sum():,}")
+        m1.metric("Total Revenue", f"Rs {int(df_biz['Deal Value'].sum()):,}")
+        m2.metric("Total Profit", f"Rs {int(df_biz['Profit'].sum()):,}")
+        m3.metric("Outstanding Payment", f"Rs {int(df_biz['Remaining'].sum()):,}")
         m4.metric("Margin", f"{((df_biz['Profit'].sum()/df_biz['Deal Value'].sum())*100):.1f}%" if df_biz['Deal Value'].sum() > 0 else "0%")
 
         col_left, col_right = st.columns(2)
