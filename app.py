@@ -46,8 +46,37 @@ with tab1:
 # --- TAB 2: Business Deals ---
 with tab2:
     st.title("➕ Register & Manage Medical Deal")
-    # ... (yahan aapka purana form wala code hoga) ...
+    with st.form("biz_form", clear_on_submit=True):
 
+        c1, c2, c3 = st.columns(3)
+
+        client = c1.text_input("Client Name")
+
+        equip = c2.text_input("Equipment")
+
+        team_member = c3.text_input("Team Member (Optional)")
+
+        c4, c5, c6 = st.columns(3)
+
+        deal_val = c4.number_input("Total Deal Value", min_value=0, step=1)
+
+        cost = c5.number_input("Actual Cost", min_value=0, step=1)
+
+        sent_pay = c6.number_input("Payment Sent", min_value=0, step=1)
+
+        if st.form_submit_button("Log Deal"):
+
+            remaining = int(deal_val - sent_pay)
+
+            profit = int(deal_val - cost)
+
+            status = "Pending" if remaining > 0 else "Paid"
+
+            new_row = pd.DataFrame([{'Date': pd.Timestamp.now().strftime("%Y-%m-%d"), 'Client': client, 'Equipment': equip, 'Deal Value': int(deal_val), 'Cost': int(cost), 'Sent Payment': int(sent_pay), 'Remaining': remaining, 'Profit': profit, 'Team Member': team_member if team_member else "N/A", 'Status': status}])
+
+            st.session_state.business_df = pd.concat([st.session_state.business_df, new_row], ignore_index=True)
+
+            st.rerun()
     st.subheader("🔍 Filter Deals by Date")
     c_f1, c_f2 = st.columns(2)
     start_date = c_f1.date_input("Start Date", value=pd.Timestamp("2026-01-01"))
