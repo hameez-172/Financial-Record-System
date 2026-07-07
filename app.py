@@ -95,14 +95,21 @@ with tab3:
     st.title("💳 Financial Sheets")
     conn = sqlite3.connect('enterprise.db')
     df = pd.read_sql("SELECT * FROM business_deals", conn)
-    
-    col1, col2 = st.columns(2)
-    col1.subheader("Credit Sheet")
-    col1.dataframe(df[['client', 'invoice_no', 'total', 'paid', 'remaining', 'status']])
-    col2.subheader("Debit Sheet")
-    col2.dataframe(df[['client', 'invoice_no', 'cost', 'paid']])
     conn.close()
-
+    
+    if not df.empty:
+        # Check karein ke columns exist karte hain ya nahi
+        required_cols = ['client', 'invoice_no', 'total', 'paid', 'remaining', 'status']
+        # Jo columns missing hain, unhein ignore ya create karein
+        existing_cols = [c for c in required_cols if c in df.columns]
+        
+        st.subheader("Credit Sheet (Receivables)")
+        st.dataframe(df[existing_cols], use_container_width=True)
+        
+        st.subheader("Debit Sheet (Liabilities)")
+        st.dataframe(df[['client', 'invoice_no', 'cost', 'paid']], use_container_width=True)
+    else:
+        st.write("Abhi koi data enter nahi hua.")
 # --- TAB 4: Analytics ---
 with tab4:
     st.title("📊 Performance Insights")
