@@ -44,6 +44,7 @@ with tab1:
     st.dataframe(st.session_state.home_df.style.format({'Amount': '{:,}'}), use_container_width=True)
 
 # --- TAB 2: Business Deals ---
+# --- TAB 2: Business Deals ---
 with tab2:
     st.title("➕ Register & Manage Medical Deal")
     with st.form("biz_form", clear_on_submit=True):
@@ -62,7 +63,7 @@ with tab2:
             new_row = pd.DataFrame([{'Date': pd.Timestamp.now().strftime("%Y-%m-%d"), 'Client': client, 'Equipment': equip, 'Deal Value': int(deal_val), 'Cost': int(cost), 'Sent Payment': int(sent_pay), 'Remaining': remaining, 'Profit': profit, 'Team Member': team_member if team_member else "N/A", 'Status': status}])
             st.session_state.business_df = pd.concat([st.session_state.business_df, new_row], ignore_index=True)
             st.rerun()
-
+    
     st.subheader("🔍 Filter Deals by Date")
     c_f1, c_f2 = st.columns(2)
     start_date = c_f1.date_input("Start Date", value=pd.Timestamp("2026-01-01"))
@@ -74,20 +75,24 @@ with tab2:
     mask = (df_temp['Date'].dt.date >= start_date) & (df_temp['Date'].dt.date <= end_date)
     df_filtered = df_temp.loc[mask]
 
-    st.subheader("Client's Data")
+    st.subheader("Recent Deals (Click cell to Edit)")
+    edited_df = st.data_editor(df_filtered, use_container_width=True, hide_index=True)
+    
+    if not edited_df.equals(df_filtered):
+        # Update Logic
+        edited_df['Remaining'] = edited_df['Deal Value'] - edited_df['Sent Payment']
+        edited_df['Profit'] = edited_df['Deal Value'] - edited_df['Cost']
+        edited_df['Status'] = edited_df['Remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
+        st.session_state.business_df.update(edited_df)
+        st.rerun()
 
-edited_df = st.data_editor(
-    df_filtered, 
-    use_container_width=True, 
-    hide_index=True,
-    column_config={
-        "Remaining": st.column_config.NumberColumn("Remaining", format="Rs %d"),
-        "Deal Value": st.column_config.NumberColumn("Deal Value", format="Rs %d"),
-        "Cost": st.column_config.NumberColumn("Cost", format="Rs %d"),
-        "Profit": st.column_config.NumberColumn("Profit", format="Rs %d"),
-        "Sent Payment": st.column_config.NumberColumn("Sent Payment", format="Rs %d"),
-    }
-)
+    def highlight_remaining(val):
+        color = '#8b0000' if isinstance(val, (int, float)) and val > 0 else ''
+        return f'background-color: {color}'
+    
+    st.dataframe(edited_df.style.format({'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 'Remaining': '{:,}', 'Profit': '{:,}'}).map(highlight_remaining, subset=['Remaining']), use_container_width=True)
+
+
 
 # After editing, apply the features
 for i in range(len(edited_df)):
