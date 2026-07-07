@@ -89,7 +89,8 @@ with tab2:
         color = '#8b0000' if isinstance(val, (int, float)) and val > 0 else ''
         return f'background-color: {color}'
     
-  
+    st.dataframe(edited_df.style.format({'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 'Remaining': '{:,}', 'Profit': '{:,}'}).map(highlight_remaining, subset=['Remaining']), use_container_width=True)
+
 # --- TAB 3: Business Analytics ---
 with tab3:
     st.title("📊 Performance Insights")
