@@ -90,24 +90,22 @@ edited_df = st.data_editor(
 if not edited_df.equals(df_filtered):
 
     # Recalculate Remaining and Profit
-    edited_df["Remaining"] = (
-        edited_df["Deal Value"] - edited_df["Sent Payment"]
-    )
-
-    edited_df["Profit"] = (
-        edited_df["Deal Value"] - edited_df["Cost"]
-    )
-
+    edited_df["Remaining"] = edited_df["Deal Value"] - edited_df["Sent Payment"]
+edited_df["Profit"] = edited_df["Deal Value"] - edited_df["Cost"]
+edited_df["Status"] = edited_df["Remaining"].apply(
+    lambda x: "Paid" if x <= 0 else "Pending"
+)
     # Auto Update Status
     edited_df["Status"] = edited_df["Remaining"].apply(
         lambda x: "Paid" if x <= 0 else "Pending"
     )
 
+for i in range(len(edited_df)):
+    if edited_df.at[i, "Remaining"] == 0:
+        edited_df.at[i, "Status"] = "Paid"
     # Update only edited rows
-    st.session_state.business_df.loc[edited_df.index] = edited_df
-
-    st.rerun()
-
+    st.session_state.business_df.update(edited_df)
+st.rerun()
 
 # ---------- Highlight Remaining Amount ----------
 def highlight_remaining(row):
