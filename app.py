@@ -47,7 +47,7 @@ with tab1:
 # --- TAB 2: Business Deals ---
 with tab2:
     st.title("➕ Register & Manage Medical Deal")
-    # [Form logic same yahan rahegi jaisa aapne pehle likha tha]
+    # [Form logic same yahan rahegi]
     with st.form("biz_form", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
         client = c1.text_input("Client Name")
@@ -65,31 +65,33 @@ with tab2:
             st.session_state.business_df = pd.concat([st.session_state.business_df, new_row], ignore_index=True)
             st.rerun()
 
-    st.subheader("📋 Recent Deals")
-    
-    # Editor for editing
-    edited_df = st.data_editor(st.session_state.business_df, use_container_width=True, hide_index=True)
+    st.subheader("📋 Recent Deals (Edit Remaining to 0 to Pay)")
 
-    # Logic to update values
+    # 1. Editor jisme edit kar saken
+    edited_df = st.data_editor(
+        st.session_state.business_df, 
+        use_container_width=True, 
+        hide_index=True,
+        key="data_editor_main"
+    )
+
+    # 2. Logic: Agar koi change hui to recalculate aur status update
     if not edited_df.equals(st.session_state.business_df):
-        edited_df["Remaining"] = edited_df["Deal Value"] - edited_df["Sent Payment"]
-        edited_df["Profit"] = edited_df["Deal Value"] - edited_df["Cost"]
+        # Remaining manually 0 karne par Status "Paid" ho jayega
         edited_df["Status"] = edited_df["Remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
         st.session_state.business_df = edited_df
         st.rerun()
 
-    # Highlight Function
-    def highlight_row(val):
+    # 3. Highlight Function: Sirf wahan red hoga jahan Remaining > 0
+    def highlight_remaining(val):
         color = '#ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
         return f'background-color: {color}'
 
-    # Final Display Table with Highlighting
-    st.subheader("🔍 Current Deal Status")
+    # 4. Display Table: Yeh sirf show karne ke liye hai (styling ke sath)
     st.dataframe(
-        st.session_state.business_df.style.map(highlight_row, subset=['Remaining']),
+        st.session_state.business_df.style.map(highlight_remaining, subset=['Remaining']),
         use_container_width=True
-    )
-    # --- TAB 3: Business Analytics ---
+    )    # --- TAB 3: Business Analytics ---
 with tab3:
     st.title("📊 Performance Insights")
     if not st.session_state.business_df.empty:
