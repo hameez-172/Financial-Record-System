@@ -45,47 +45,47 @@ with tab1:
 
 # --- TAB 2: Business Deals ---
 with tab2:
- # --- TAB 2: Business Deals (Final Clean Version) ---
-    st.subheader("📋 Client's Data (Click cell to Edit)")
+    st.title("💼 Business Deals Management")
     
-    # 1. Filter logic
+    # Register Deal Form
+    with st.expander("➕ Register New Medical Deal"):
+        with st.form("biz_form", clear_on_submit=True):
+            c1, c2, c3 = st.columns(3)
+            client = c1.text_input("Client Name")
+            equip = c2.text_input("Equipment")
+            team_member = c3.text_input("Team Member (Optional)")
+            c4, c5, c6 = st.columns(3)
+            deal_val = c4.number_input("Total Deal Value", min_value=0, step=1)
+            cost = c5.number_input("Actual Cost", min_value=0, step=1)
+            sent_pay = c6.number_input("Payment Sent", min_value=0, step=1)
+            if st.form_submit_button("Log Deal"):
+                remaining = int(deal_val - sent_pay)
+                profit = int(deal_val - cost)
+                new_row = pd.DataFrame([{'Date': pd.Timestamp.now().strftime("%Y-%m-%d"), 'Client': client, 'Equipment': equip, 'Deal Value': int(deal_val), 'Cost': int(cost), 'Sent Payment': int(sent_pay), 'Remaining': remaining, 'Profit': profit, 'Team Member': team_member if team_member else "N/A", 'Status': "Pending" if remaining > 0 else "Paid"}])
+                st.session_state.business_df = pd.concat([st.session_state.business_df, new_row], ignore_index=True)
+                st.rerun()
+
+    # Filter Logic
+    st.subheader("🔍 Filter Deals")
+    f1, f2 = st.columns(2)
+    start_date = f1.date_input("Start Date", value=pd.Timestamp("2026-01-01"))
+    end_date = f2.date_input("End Date", value=pd.Timestamp.now())
+    
     df_temp = st.session_state.business_df.copy()
     df_temp['Date'] = pd.to_datetime(df_temp['Date'])
     mask = (df_temp['Date'].dt.date >= start_date) & (df_temp['Date'].dt.date <= end_date)
     df_filtered = df_temp.loc[mask]
 
-    # 2. Highlight Logic Function
-    def highlight_remaining(val):
-        color = '#8b0000' if isinstance(val, (int, float)) and val > 0 else ''
-        return f'background-color: {color}'
-
-    # 3. Sirf Data Editor (Ek hi table)
-    # Highlight ke liye hum display format use karenge
-    styled_df = df_filtered.style.format({
-        'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 
-        'Remaining': '{:,}', 'Profit': '{:,}'
-    }).map(highlight_remaining, subset=['Remaining'])
-
-    # Editable Editor (Jo changes accept karega)
-    edited_df = st.data_editor(
-        df_filtered,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Remaining": st.column_config.NumberColumn(format="%d"),
-        }
-    )
-
-    # 4. Sync edits
+    st.subheader("📋 Client's Data (Click cell to Edit)")
+    edited_df = st.data_editor(df_filtered, use_container_width=True, hide_index=True)
+    
     if not edited_df.equals(df_filtered):
-        # Calculation update
         edited_df['Remaining'] = edited_df['Deal Value'] - edited_df['Sent Payment']
         edited_df['Profit'] = edited_df['Deal Value'] - edited_df['Cost']
         edited_df['Status'] = edited_df['Remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
-        
-        # Main state update
         st.session_state.business_df.update(edited_df)
         st.rerun()
+
 # --- TAB 3: Business Analytics ---
 with tab3:
     st.title("📊 Performance Insights")
