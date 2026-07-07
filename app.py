@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-st.set_page_config(page_title="Hameez Finance Hub", layout="wide")
+st.set_page_config(page_title="Hameez Enterprise Hub", layout="wide")
 
 # Professional CSS
 st.markdown("""
@@ -12,12 +12,12 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- Session States ---
+# --- Session State Initialization ---
 if 'home_df' not in st.session_state:
     st.session_state.home_df = pd.DataFrame({'Recipient': ['Anoushay', 'Hameez', 'Talha', 'Self', 'General House', 'Sent to Home'], 'Amount': [0, 0, 0, 0, 0, 0]})
 
 if 'business_df' not in st.session_state:
-    st.session_state.business_df = pd.DataFrame(columns=['Date', 'Client', 'Equipment', 'Deal Value', 'Cost', 'Profit', 'Team Member', 'Status'])
+    st.session_state.business_df = pd.DataFrame(columns=['Date', 'Client', 'Equipment', 'Deal Value', 'Cost', 'Sent Payment', 'Remaining', 'Profit', 'Team Member', 'Status'])
 
 tab1, tab2, tab3 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "📊 Business Analytics"])
 
@@ -50,21 +50,32 @@ with tab2:
         c1, c2, c3 = st.columns(3)
         client = c1.text_input("Client Name")
         equip = c2.text_input("Equipment")
-        status = c3.selectbox("Status", ["Paid", "Pending"])
+        team_member = c3.text_input("Team Member (Optional)")
         
         c4, c5, c6 = st.columns(3)
-        deal_val = c4.number_input("Deal Value (Rs)", min_value=0.0)
-        cost = c5.number_input("Cost/Investment (Rs)", min_value=0.0)
-        team_member = c6.selectbox("Team Member", ["Hameez", "Anoushay", "Talha", "Other"])
+        deal_val = c4.number_input("Total Deal Value (Client side)", min_value=0.0)
+        cost = c5.number_input("Actual Cost (Procurement)", min_value=0.0)
+        sent_pay = c6.number_input("Payment Sent by Client", min_value=0.0)
         
         if st.form_submit_button("Log Deal"):
+            remaining = deal_val - sent_pay
             profit = deal_val - cost
-            new_row = pd.DataFrame([{'Date': pd.Timestamp.now().strftime("%Y-%m-%d"), 'Client': client, 'Equipment': equip, 'Deal Value': deal_val, 'Cost': cost, 'Profit': profit, 'Team Member': team_member, 'Status': status}])
+            status = "Pending" if remaining > 0 else "Paid"
+            
+            new_row = pd.DataFrame([{
+                'Date': pd.Timestamp.now().strftime("%Y-%m-%d"), 'Client': client, 'Equipment': equip, 
+                'Deal Value': deal_val, 'Cost': cost, 'Sent Payment': sent_pay, 'Remaining': remaining, 
+                'Profit': profit, 'Team Member': team_member if team_member else "N/A", 'Status': status
+            }])
             st.session_state.business_df = pd.concat([st.session_state.business_df, new_row], ignore_index=True)
             st.rerun()
     
     st.subheader("Recent Deals")
-    st.dataframe(st.session_state.business_df, use_container_width=True)
+    
+    def highlight_pending(row):
+        return ['background-color: #8b0000' if row['Remaining'] > 0 else '' for _ in row]
+    
+    st.dataframe(st.session_state.business_df.style.apply(highlight_pending, axis=1), use_container_width=True)
 
 # --- TAB 3: Business Analytics ---
 with tab3:
@@ -72,10 +83,10 @@ with tab3:
     if not st.session_state.business_df.empty:
         df_biz = st.session_state.business_df
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Revenue", f"Rs {df_biz['Deal Value'].sum():,}")
-        m2.metric("Profit", f"Rs {df_biz['Profit'].sum():,}")
-        m3.metric("Margin", f"{((df_biz['Profit'].sum()/df_biz['Deal Value'].sum())*100):.1f}%")
-        m4.metric("Pending", f"Rs {df_biz[df_biz['Status']=='Pending']['Deal Value'].sum():,}")
+        m1.metric("Total Revenue", f"Rs {df_biz['Deal Value'].sum():,}")
+        m2.metric("Total Profit", f"Rs {df_biz['Profit'].sum():,}")
+        m3.metric("Outstanding Payment", f"Rs {df_biz['Remaining'].sum():,}")
+        m4.metric("Margin", f"{((df_biz['Profit'].sum()/df_biz['Deal Value'].sum())*100):.1f}%" if df_biz['Deal Value'].sum() > 0 else "0%")
 
         col_left, col_right = st.columns(2)
         with col_left:
@@ -83,8 +94,8 @@ with tab3:
             fig = px.bar(df_biz, x='Equipment', y=['Cost', 'Profit'], barmode='group', template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
         with col_right:
-            st.subheader("Team Performance")
-            fig_pie = px.pie(df_biz, values='Deal Value', names='Team Member', hole=0.5, template="plotly_dark")
+            st.subheader("Remaining Payment by Client")
+            fig_pie = px.pie(df_biz, values='Remaining', names='Client', hole=0.5, template="plotly_dark")
             st.plotly_chart(fig_pie, use_container_width=True)
     else:
         st.info("Log a deal to see analytics.")
