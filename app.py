@@ -74,28 +74,37 @@ with tab2:
     mask = (df_temp['Date'].dt.date >= start_date) & (df_temp['Date'].dt.date <= end_date)
     df_filtered = df_temp.loc[mask]
 
-    # YE WALA HISSA COPY KAREIN
-    st.subheader("Client's Data")
-    
-    edited_df = st.data_editor(
-        df_filtered, 
-        use_container_width=True, 
-        hide_index=True,
-        column_config={
-            "Remaining": st.column_config.NumberColumn("Remaining", format="Rs %d"),
-            "Deal Value": st.column_config.NumberColumn("Deal Value", format="Rs %d"),
-            "Cost": st.column_config.NumberColumn("Cost", format="Rs %d"),
-            "Profit": st.column_config.NumberColumn("Profit", format="Rs %d"),
-            "Sent Payment": st.column_config.NumberColumn("Sent Payment", format="Rs %d"),
-        }
-    )
-    
-    if not edited_df.equals(df_filtered):
-        edited_df['Remaining'] = edited_df['Deal Value'] - edited_df['Sent Payment']
-        edited_df['Profit'] = edited_df['Deal Value'] - edited_df['Cost']
-        edited_df['Status'] = edited_df['Remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
-        st.session_state.business_df.update(edited_df)
-        st.rerun()
+   st.subheader("Client's Data")
+
+edited_df = st.data_editor(
+    df_filtered, 
+    use_container_width=True, 
+    hide_index=True,
+    column_config={
+        "Remaining": st.column_config.NumberColumn("Remaining", format="Rs %d"),
+        "Deal Value": st.column_config.NumberColumn("Deal Value", format="Rs %d"),
+        "Cost": st.column_config.NumberColumn("Cost", format="Rs %d"),
+        "Profit": st.column_config.NumberColumn("Profit", format="Rs %d"),
+        "Sent Payment": st.column_config.NumberColumn("Sent Payment", format="Rs %d"),
+    }
+)
+
+# After editing, apply the features
+for i in range(len(edited_df)):
+    if edited_df.at[i, 'Remaining'] > 0:
+        # Highlight only the cell in the Remaining column
+        edited_df.at[i, 'Remaining'] = f"<span style='background-color: red;'>{edited_df.at[i, 'Remaining']}</span>"
+    else:
+        # No highlight if zero
+        pass
+
+# Apply the changes to session state
+if not edited_df.equals(df_filtered):
+    edited_df['Remaining'] = edited_df['Deal Value'] - edited_df['Sent Payment']
+    edited_df['Profit'] = edited_df['Deal Value'] - edited_df['Cost']
+    edited_df['Status'] = edited_df['Remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
+    st.session_state.business_df.update(edited_df)
+    st.rerun()
         # --- TAB 3: Business Analytics ---
 with tab3:
     st.title("📊 Performance Insights")
