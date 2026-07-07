@@ -45,6 +45,7 @@ with tab1:
 
 # --- TAB 2: Business Deals ---
 # --- TAB 2: Business Deals ---
+# --- TAB 2: Business Deals ---
 with tab2:
     st.title("➕ Register & Manage Medical Deal")
     with st.form("biz_form", clear_on_submit=True):
