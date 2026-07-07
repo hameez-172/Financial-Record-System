@@ -46,7 +46,6 @@ with tab1:
 # --- TAB 2: Business Deals ---
 with tab2:
     st.title("➕ Register & Manage Medical Deal")
-    st.title("➕ Register & Manage Medical Deal")
     with st.form("biz_form", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
         client = c1.text_input("Client Name")
