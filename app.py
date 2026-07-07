@@ -59,7 +59,7 @@ with tab2:
         if st.form_submit_button("Log Deal"):
             remaining = int(deal_val - sent_pay)
             profit = int(deal_val - cost)
-            status = "Pending" if remaining > 0 else "Paid"
+            status = "Paid" if remaining <= 0 else "Pending"
             new_row = pd.DataFrame([{'Date': pd.Timestamp.now().strftime("%Y-%m-%d"), 'Client': client, 'Equipment': equip, 'Deal Value': int(deal_val), 'Cost': int(cost), 'Sent Payment': int(sent_pay), 'Remaining': remaining, 'Profit': profit, 'Team Member': team_member if team_member else "N/A", 'Status': status}])
             st.session_state.business_df = pd.concat([st.session_state.business_df, new_row], ignore_index=True)
             st.rerun()
@@ -69,59 +69,39 @@ with tab2:
     start_date = c_f1.date_input("Start Date", value=pd.Timestamp("2026-01-01"))
     end_date = c_f2.date_input("End Date", value=pd.Timestamp.now())
     
-    # Filter Data
     df_temp = st.session_state.business_df.copy()
     df_temp['Date'] = pd.to_datetime(df_temp['Date'])
     mask = (df_temp['Date'].dt.date >= start_date) & (df_temp['Date'].dt.date <= end_date)
     df_filtered = df_temp.loc[mask]
 
-    st.subheader("📋 Recent Deals (Click cell to Edit)")
+    st.subheader("📋 Manage Deals")
 
-    # Editable Table
+    # Sirf ek editor jo edit bhi karega aur display bhi
     edited_df = st.data_editor(
         df_filtered,
         use_container_width=True,
         hide_index=True,
-        num_rows="fixed",
-        key="deal_editor"
+        column_config={
+            "Status": st.column_config.TextColumn(disabled=True), # Status auto update hoga
+            "Remaining": st.column_config.NumberColumn(disabled=True), # Auto calculate hoga
+            "Profit": st.column_config.NumberColumn(disabled=True)
+        }
     )
 
-    # Logic to handle edits (Manual edit or change triggers update)
+    # Logic: Agar user ne kuch edit kiya (Jaise Sent Payment change ki)
     if not edited_df.equals(df_filtered):
-        # 1. Automatic Update Logic
+        # Calculation
         edited_df["Remaining"] = edited_df["Deal Value"] - edited_df["Sent Payment"]
         edited_df["Profit"] = edited_df["Deal Value"] - edited_df["Cost"]
         edited_df["Status"] = edited_df["Remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
         
-        # Update original dataframe
+        # Highlight Logic
+        def highlight_remaining(row):
+            return ["background-color: #ff4b4b; color: white;" if row["Remaining"] > 0 else "" for _ in row]
+
+        # Update Session State
         st.session_state.business_df.update(edited_df)
-        st.rerun()
-
-    # ---------- Highlight Remaining Amount ----------
-    def highlight_remaining(row):
-        styles = [""] * len(row)
-        # Check if 'Remaining' column exists
-        if "Remaining" in row.index:
-            remaining_val = row["Remaining"]
-            # Highlight only if greater than 0
-            if remaining_val > 0:
-                remaining_col = row.index.get_loc("Remaining")
-                styles[remaining_col] = "background-color:#ff4b4b;color:white;font-weight:bold;"
-        return styles
-
-    # Show ONE TABLE (Includes Editing & Styling)
-    st.dataframe(
-        edited_df.style
-            .apply(highlight_remaining, axis=1)
-            .format({
-                "Deal Value": "{:,.0f}",
-                "Cost": "{:,.0f}",
-                "Sent Payment": "{:,.0f}",
-                "Remaining": "{:,.0f}",
-                "Profit": "{:,.0f}",
-            }),
-        use_container_width=True
-    )# --- TAB 3: Business Analytics ---
+        st.rerun()# --- TAB 3: Business Analytics ---
 with tab3:
     st.title("📊 Performance Insights")
     if not st.session_state.business_df.empty:
