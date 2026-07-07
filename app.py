@@ -72,31 +72,51 @@ with tab1:
 # --- TAB 2: Business Deals ---
 with tab2:
     st.title("➕ Register & Manage Medical Deal")
+    # [Form logic same yahan rahegi]
     with st.form("biz_form", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
-        doc_type = c1.selectbox("Type", ["Invoice", "Quotation"])
-        inv_no = c2.text_input("Invoice No")
-        client = c3.text_input("Client Name")
-        specs = st.text_input("SPECS")
+        client = c1.text_input("Client Name")
+        equip = c2.text_input("Equipment")
+        team_member = c3.text_input("Team Member (Optional)")
         c4, c5, c6 = st.columns(3)
-        qty = c4.number_input("QUANTITY", min_value=0)
-        u_price = c5.number_input("PER UNIT PRICE", min_value=0)
-        cost = c6.number_input("Actual Cost", min_value=0)
-        paid = st.number_input("Payment Paid", min_value=0)
-        
+        deal_val = c4.number_input("Total Deal Value", min_value=0, step=1)
+        cost = c5.number_input("Actual Cost", min_value=0, step=1)
+        sent_pay = c6.number_input("Payment Sent", min_value=0, step=1)
         if st.form_submit_button("Log Deal"):
-            total = qty * u_price
-            rem = total - paid
-            conn = sqlite3.connect('enterprise.db')
-            conn.execute("INSERT INTO business_deals (date, client, invoice_no, specs, quantity, unit_price, total, cost, paid, remaining, type) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                         (datetime.now().strftime("%Y-%m-%d"), client, inv_no, specs, qty, u_price, total, cost, paid, rem, doc_type))
-            conn.commit()
-            conn.close()
+            remaining = int(deal_val - sent_pay)
+            profit = int(deal_val - cost)
+            status = "Paid" if remaining <= 0 else "Pending"
+            new_row = pd.DataFrame([{'Date': pd.Timestamp.now().strftime("%Y-%m-%d"), 'Client': client, 'Equipment': equip, 'Deal Value': int(deal_val), 'Cost': int(cost), 'Sent Payment': int(sent_pay), 'Remaining': remaining, 'Profit': profit, 'Team Member': team_member if team_member else "N/A", 'Status': status}])
+            st.session_state.business_df = pd.concat([st.session_state.business_df, new_row], ignore_index=True)
             st.rerun()
 
-    df_biz = pd.read_sql("SELECT * FROM business_deals", sqlite3.connect('enterprise.db'))
-    st.dataframe(df_biz, use_container_width=True)
+    st.subheader("📋 Recent Deals (Edit Remaining to 0 to Pay)")
 
+    # 1. Editor jisme edit kar saken
+    edited_df = st.data_editor(
+        st.session_state.business_df, 
+        use_container_width=True, 
+        hide_index=True,
+        key="data_editor_main"
+    )
+
+    # 2. Logic: Agar koi change hui to recalculate aur status update
+    if not edited_df.equals(st.session_state.business_df):
+        # Remaining manually 0 karne par Status "Paid" ho jayega
+        edited_df["Status"] = edited_df["Remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
+        st.session_state.business_df = edited_df
+        st.rerun()
+
+    # 3. Highlight Function: Sirf wahan red hoga jahan Remaining > 0
+    def highlight_remaining(val):
+        color = '#ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
+        return f'background-color: {color}'
+
+    # 4. Display Table: Yeh sirf show karne ke liye hai (styling ke sath)
+    st.dataframe(
+        st.session_state.business_df.style.map(highlight_remaining, subset=['Remaining']),
+        use_container_width=True
+    )
 # --- TAB 3: Credit/Debit Sheets ---
 with tab3:
     st.title("💳 Credit & Debit Records")
