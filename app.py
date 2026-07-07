@@ -77,39 +77,50 @@ with tab2:
             st.session_state.business_df = pd.concat([st.session_state.business_df, new_row], ignore_index=True)
 
             st.rerun()
-    st.subheader("🔍 Filter Deals by Date")
-    c_f1, c_f2 = st.columns(2)
-    start_date = c_f1.date_input("Start Date", value=pd.Timestamp("2026-01-01"))
-    end_date = c_f2.date_input("End Date", value=pd.Timestamp.now())
-    
-    # Filter Data
-    df_temp = st.session_state.business_df.copy()
-    df_temp['Date'] = pd.to_datetime(df_temp['Date'])
-    mask = (df_temp['Date'].dt.date >= start_date) & (df_temp['Date'].dt.date <= end_date)
-    df_filtered = df_temp.loc[mask]
-
-    # YE WALA HISSA COPY KAREIN
     st.subheader("Client's Data")
     
+    # Use column_config to style the 'Remaining' column
+    # st.data_editor does not support background color mapping, 
+    # but we can use format to make it stand out.
     edited_df = st.data_editor(
         df_filtered, 
         use_container_width=True, 
         hide_index=True,
         column_config={
-            "Remaining": st.column_config.NumberColumn("Remaining", format="Rs %d"),
-            "Deal Value": st.column_config.NumberColumn("Deal Value", format="Rs %d"),
-            "Cost": st.column_config.NumberColumn("Cost", format="Rs %d"),
-            "Profit": st.column_config.NumberColumn("Profit", format="Rs %d"),
-            "Sent Payment": st.column_config.NumberColumn("Sent Payment", format="Rs %d"),
+            "Remaining": st.column_config.NumberColumn(
+                "Remaining", 
+                format="Rs %d",
+                help="Amount still due"
+            ),
+            # You can disable editing for auto-calculated columns so they don't get messed up
+            "Profit": st.column_config.NumberColumn("Profit", disabled=True),
+            "Status": st.column_config.TextColumn("Status", disabled=True),
         }
     )
     
     if not edited_df.equals(df_filtered):
+        # Update calculations
         edited_df['Remaining'] = edited_df['Deal Value'] - edited_df['Sent Payment']
         edited_df['Profit'] = edited_df['Deal Value'] - edited_df['Cost']
         edited_df['Status'] = edited_df['Remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
+        
+        # Update session state
         st.session_state.business_df.update(edited_df)
         st.rerun()
+
+    # --- ADD THIS IF YOU WANT THE BACKGROUND HIGHLIGHTING ---
+    # We display a SECOND table just for the visual 'highlight' effect
+    # which shows the styling while keeping the editor above it.
+    
+    def highlight_remaining(row):
+        return ['background-color: #8b0000' if row['Remaining'] > 0 else '' for _ in row]
+
+    st.subheader("Highlighted View")
+    st.dataframe(
+        df_filtered.style.apply(highlight_remaining, axis=1), 
+        use_container_width=True, 
+        hide_index=True
+    )
 # --- TAB 3: Business Analytics ---
 with tab3:
     st.title("📊 Performance Insights")
