@@ -12,7 +12,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- Session State Initialization ---
+# --- Session State ---
 if 'home_df' not in st.session_state:
     st.session_state.home_df = pd.DataFrame({'Recipient': ['Anoushay', 'Hameez', 'Talha', 'Self', 'General House', 'Sent to Home'], 'Amount': [0, 0, 0, 0, 0, 0]})
 
@@ -21,12 +21,10 @@ if 'business_df' not in st.session_state:
 
 tab1, tab2, tab3 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "📊 Business Analytics"])
 
-# --- TAB 1: Home Finance ---
+# --- TAB 1 ---
 with tab1:
     st.title("🏡 Home Finance Tracker")
-    df = st.session_state.home_df
-    totals = df.groupby('Recipient')['Amount'].sum()
-    
+    totals = st.session_state.home_df.groupby('Recipient')['Amount'].sum()
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Anoushay", f"Rs {int(totals.get('Anoushay', 0)):,}")
     c2.metric("Hameez", f"Rs {int(totals.get('Hameez', 0)):,}")
@@ -46,8 +44,6 @@ with tab1:
 # --- TAB 2: Business Deals ---
 with tab2:
     st.title("💼 Business Deals Management")
-    
-    # Register Deal Form
     with st.expander("➕ Register New Medical Deal"):
         with st.form("biz_form", clear_on_submit=True):
             c1, c2, c3 = st.columns(3)
@@ -66,34 +62,38 @@ with tab2:
                 st.rerun()
 
     # Filter Logic
-    st.subheader("🔍 Filter Deals")
     f1, f2 = st.columns(2)
     start_date = f1.date_input("Start Date", value=pd.Timestamp("2026-01-01"))
     end_date = f2.date_input("End Date", value=pd.Timestamp.now())
-    
     df_temp = st.session_state.business_df.copy()
     df_temp['Date'] = pd.to_datetime(df_temp['Date'])
-    mask = (df_temp['Date'].dt.date >= start_date) & (df_temp['Date'].dt.date <= end_date)
-    df_filtered = df_temp.loc[mask]
+    df_filtered = df_temp[(df_temp['Date'].dt.date >= start_date) & (df_temp['Date'].dt.date <= end_date)]
 
-    st.subheader("📋 Client's Data (Click cell to Edit)")
-    edited_df = st.data_editor(df_filtered, use_container_width=True, hide_index=True)
+    st.subheader("📋 Client's Data (Edit directly in table)")
     
-    if not edited_df.equals(df_filtered):
-        edited_df['Remaining'] = edited_df['Deal Value'] - edited_df['Sent Payment']
-        edited_df['Profit'] = edited_df['Deal Value'] - edited_df['Cost']
-        edited_df['Status'] = edited_df['Remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
-        st.session_state.business_df.update(edited_df)
+    # Conditional formatting for highlighting in Data Editor
+    def get_color(val):
+        return "background-color: #8b0000" if isinstance(val, (int, float)) and val > 0 else None
+
+    # Displaying and Editing in one go
+    edited_df = st.data_editor(
+        df_filtered.style.map(get_color, subset=['Remaining']).format({
+            'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 'Remaining': '{:,}', 'Profit': '{:,}'
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+    
+    # Refresh data if edited
+    if not edited_df.data.equals(df_filtered):
+        updated_data = edited_df.data.copy()
+        updated_data['Remaining'] = updated_data['Deal Value'] - updated_data['Sent Payment']
+        updated_data['Profit'] = updated_data['Deal Value'] - updated_data['Cost']
+        updated_data['Status'] = updated_data['Remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
+        st.session_state.business_df.update(updated_data)
         st.rerun()
 
-    # Highlighting logic for display
-    def highlight_remaining(val):
-        color = '#8b0000' if isinstance(val, (int, float)) and val > 0 else ''
-        return f'background-color: {color}'
-    
-    st.dataframe(edited_df.style.format({'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 'Remaining': '{:,}', 'Profit': '{:,}'}).map(highlight_remaining, subset=['Remaining']), use_container_width=True)
-
-# --- TAB 3: Business Analytics ---
+# --- TAB 3 ---
 with tab3:
     st.title("📊 Performance Insights")
     if not st.session_state.business_df.empty:
@@ -103,15 +103,3 @@ with tab3:
         m2.metric("Total Profit", f"Rs {int(df_biz['Profit'].sum()):,}")
         m3.metric("Outstanding", f"Rs {int(df_biz['Remaining'].sum()):,}")
         m4.metric("Margin", f"{((df_biz['Profit'].sum()/df_biz['Deal Value'].sum())*100):.1f}%" if df_biz['Deal Value'].sum() > 0 else "0%")
-
-        col_left, col_right = st.columns(2)
-        with col_left:
-            st.subheader("Cost vs Profit")
-            fig = px.bar(df_biz, x='Equipment', y=['Cost', 'Profit'], barmode='group', template="plotly_dark")
-            st.plotly_chart(fig, use_container_width=True)
-        with col_right:
-            st.subheader("Remaining Payment")
-            fig_pie = px.pie(df_biz, values='Remaining', names='Client', hole=0.5, template="plotly_dark")
-            st.plotly_chart(fig_pie, use_container_width=True)
-    else:
-        st.info("Log a deal to see analytics.")
