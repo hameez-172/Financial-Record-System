@@ -30,26 +30,25 @@ def download_pdf(row):
     pdf.ln(10)
     pdf.set_font("Arial", '', 12)
     for col, val in row.items():
-        pdf.cell(0, 10, f"{col.upper()}: {val}", 0, 1)
+        pdf.cell(0, 10, f"{str(col).upper()}: {str(val)}", 0, 1)
     return pdf.output(dest='S').encode('latin-1')
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit Sheets", "📊 Analytics"])
 
-# --- TAB 1: Home Finance ---
+# --- TAB 1 ---
 with tab1:
     st.title("🏡 Home Finance Tracker")
     conn = sqlite3.connect('enterprise.db')
-    if st.button("Add Home Data"):
+    if st.button("Add General Entry"):
         conn.execute("INSERT INTO home_finance (recipient, amount) VALUES ('General', 0)")
         conn.commit()
     st.dataframe(pd.read_sql("SELECT * FROM home_finance", conn), use_container_width=True)
     conn.close()
 
-# --- TAB 2: Business Deals (WITH DATA EDITOR) ---
+# --- TAB 2: Business Deals (Logic Applied) ---
 with tab2:
     st.title("➕ Register & Manage Medical Deal")
     
-    # Form to add new deal
     with st.form("biz_form", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
         inv_no = c1.text_input("Invoice No")
@@ -72,51 +71,49 @@ with tab2:
             conn.close()
             st.rerun()
 
-    # Data Editor for Editing Deals
     conn = sqlite3.connect('enterprise.db')
     df_biz = pd.read_sql("SELECT * FROM business_deals", conn)
     
     st.subheader("📋 Edit Recent Deals")
+    # Edit Data
     edited_df = st.data_editor(df_biz, use_container_width=True, key="editor_1")
     
     if st.button("Save Changes to Database"):
-        # Recalculate logic for updated rows
+        # Recalculate logic
         edited_df['remaining'] = edited_df['total'] - edited_df['paid']
         edited_df['status'] = edited_df['remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
-        
-        # Save back to SQL
         edited_df.to_sql('business_deals', conn, if_exists='replace', index=False)
-        st.success("Database Updated Successfully!")
+        st.success("Database Updated!")
         st.rerun()
+
+    # Red Highlight Logic for display
+    def highlight_remaining(val):
+        color = '#ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
+        return f'background-color: {color}'
+
+    st.subheader("📋 Current Status Table")
+    st.dataframe(df_biz.style.map(highlight_remaining, subset=['remaining']), use_container_width=True)
     conn.close()
 
-# --- TAB 3: Credit/Debit Sheets ---
+# --- TAB 3 ---
 with tab3:
     st.title("💳 Financial Sheets")
     conn = sqlite3.connect('enterprise.db')
     df = pd.read_sql("SELECT * FROM business_deals", conn)
     conn.close()
-    
     if not df.empty:
-        # Check karein ke columns exist karte hain ya nahi
-        required_cols = ['client', 'invoice_no', 'total', 'paid', 'remaining', 'status']
-        # Jo columns missing hain, unhein ignore ya create karein
-        existing_cols = [c for c in required_cols if c in df.columns]
-        
         st.subheader("Credit Sheet (Receivables)")
-        st.dataframe(df[existing_cols], use_container_width=True)
-        
+        st.dataframe(df[['client', 'invoice_no', 'total', 'paid', 'remaining', 'status']], use_container_width=True)
         st.subheader("Debit Sheet (Liabilities)")
         st.dataframe(df[['client', 'invoice_no', 'cost', 'paid']], use_container_width=True)
-    else:
-        st.write("Abhi koi data enter nahi hua.")
-# --- TAB 4: Analytics ---
+
+# --- TAB 4 ---
 with tab4:
     st.title("📊 Performance Insights")
     conn = sqlite3.connect('enterprise.db')
     df_biz = pd.read_sql("SELECT * FROM business_deals", conn)
+    conn.close()
     if not df_biz.empty:
         st.metric("Total Revenue", f"Rs {df_biz['total'].sum():,}")
         fig = px.bar(df_biz, x='invoice_no', y='total', template="plotly_dark")
         st.plotly_chart(fig, use_container_width=True)
-    conn.close()
