@@ -28,20 +28,20 @@ with tab1:
     totals = df.groupby('Recipient')['Amount'].sum()
     
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Anoushay", f"Rs {totals.get('Anoushay', 0):,}")
-    c2.metric("Hameez", f"Rs {totals.get('Hameez', 0):,}")
-    c3.metric("Talha", f"Rs {totals.get('Talha', 0):,}")
-    c4.metric("Self", f"Rs {totals.get('Self', 0):,}")
+    c1.metric("Anoushay", f"Rs {int(totals.get('Anoushay', 0)):,}")
+    c2.metric("Hameez", f"Rs {int(totals.get('Hameez', 0)):,}")
+    c3.metric("Talha", f"Rs {int(totals.get('Talha', 0)):,}")
+    c4.metric("Self", f"Rs {int(totals.get('Self', 0)):,}")
     
     with st.expander("➕ Add Home Transaction"):
         with st.form("home_form", clear_on_submit=True):
             col_a, col_b = st.columns(2)
             recipient = col_a.selectbox("Who received it?", ["Anoushay", "Hameez", "Talha", "Self", "General House", "Sent to Home"])
-            amount = col_b.number_input("Amount (Rs)", min_value=0)
+            amount = col_b.number_input("Amount (Rs)", min_value=0, step=1)
             if st.form_submit_button("Update Home Finance"):
                 st.session_state.home_df = pd.concat([st.session_state.home_df, pd.DataFrame({'Recipient': [recipient], 'Amount': [amount]})], ignore_index=True)
                 st.rerun()
-    st.dataframe(st.session_state.home_df, use_container_width=True)
+    st.dataframe(st.session_state.home_df.style.format({'Amount': '{:,}'}), use_container_width=True)
 
 # --- TAB 2: Business Deals ---
 with tab2:
@@ -53,18 +53,18 @@ with tab2:
         team_member = c3.text_input("Team Member (Optional)")
         
         c4, c5, c6 = st.columns(3)
-        deal_val = c4.number_input("Total Deal Value (Client side)", min_value=0.0)
-        cost = c5.number_input("Actual Cost (Procurement)", min_value=0.0)
-        sent_pay = c6.number_input("Payment Sent by Client", min_value=0.0)
+        deal_val = c4.number_input("Total Deal Value (Client side)", min_value=0, step=1)
+        cost = c5.number_input("Actual Cost (Procurement)", min_value=0, step=1)
+        sent_pay = c6.number_input("Payment Sent by Client", min_value=0, step=1)
         
         if st.form_submit_button("Log Deal"):
-            remaining = deal_val - sent_pay
-            profit = deal_val - cost
+            remaining = int(deal_val - sent_pay)
+            profit = int(deal_val - cost)
             status = "Pending" if remaining > 0 else "Paid"
             
             new_row = pd.DataFrame([{
                 'Date': pd.Timestamp.now().strftime("%Y-%m-%d"), 'Client': client, 'Equipment': equip, 
-                'Deal Value': deal_val, 'Cost': cost, 'Sent Payment': sent_pay, 'Remaining': remaining, 
+                'Deal Value': int(deal_val), 'Cost': int(cost), 'Sent Payment': int(sent_pay), 'Remaining': remaining, 
                 'Profit': profit, 'Team Member': team_member if team_member else "N/A", 'Status': status
             }])
             st.session_state.business_df = pd.concat([st.session_state.business_df, new_row], ignore_index=True)
@@ -72,12 +72,15 @@ with tab2:
     
     st.subheader("Recent Deals")
     
-    # Highlight logic: Sirf 'Remaining' column cell highlight hoga
+    # Highlight logic
     def highlight_remaining(val):
         color = '#8b0000' if isinstance(val, (int, float)) and val > 0 else ''
         return f'background-color: {color}'
     
-    st.dataframe(st.session_state.business_df.style.map(highlight_remaining, subset=['Remaining']), use_container_width=True)
+    # Decimal hatane ke liye style format ka use
+    st.dataframe(st.session_state.business_df.style.format({
+        'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 'Remaining': '{:,}', 'Profit': '{:,}'
+    }).map(highlight_remaining, subset=['Remaining']), use_container_width=True)
 
 # --- TAB 3: Business Analytics ---
 with tab3:
