@@ -45,7 +45,6 @@ with tab1:
 
 # --- TAB 2: Business Deals ---
 # --- TAB 2: Business Deals ---
-# --- TAB 2: Business Deals ---
 with tab2:
     st.title("➕ Register & Manage Medical Deal")
     with st.form("biz_form", clear_on_submit=True):
@@ -87,29 +86,30 @@ with tab2:
         key="deal_editor"
     )
 
-    # If user edits anything
+    # Logic to handle edits (Manual edit or change triggers update)
     if not edited_df.equals(df_filtered):
-        # Recalculate Remaining and Profit
+        # 1. Automatic Update Logic
         edited_df["Remaining"] = edited_df["Deal Value"] - edited_df["Sent Payment"]
         edited_df["Profit"] = edited_df["Deal Value"] - edited_df["Cost"]
-        edited_df["Status"] = edited_df["Remaining"].apply(
-            lambda x: "Paid" if x <= 0 else "Pending"
-        )
-        # Update session state
+        edited_df["Status"] = edited_df["Remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
+        
+        # Update original dataframe
         st.session_state.business_df.update(edited_df)
         st.rerun()
 
     # ---------- Highlight Remaining Amount ----------
     def highlight_remaining(row):
         styles = [""] * len(row)
-        remaining_col = row.index.get_loc("Remaining")
-        if row["Remaining"] > 0:
-            styles[remaining_col] = "background-color:#ff4b4b;color:white;font-weight:bold;"
-        else:
-            styles[remaining_col] = ""
+        # Check if 'Remaining' column exists
+        if "Remaining" in row.index:
+            remaining_val = row["Remaining"]
+            # Highlight only if greater than 0
+            if remaining_val > 0:
+                remaining_col = row.index.get_loc("Remaining")
+                styles[remaining_col] = "background-color:#ff4b4b;color:white;font-weight:bold;"
         return styles
 
-    # Show ONLY ONE TABLE
+    # Show ONE TABLE (Includes Editing & Styling)
     st.dataframe(
         edited_df.style
             .apply(highlight_remaining, axis=1)
