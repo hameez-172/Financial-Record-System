@@ -1,68 +1,55 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 
-# 1. Page Config
-st.set_page_config(page_title="Hameez Finance Hub", layout="wide", page_icon="💰")
+st.set_page_config(page_title="Hameez Finance Hub", layout="wide")
 
-# 2. Professional CSS Styling (Colorful & Clean)
+# Styling
 st.markdown("""
     <style>
-    .main {background-color: #0b0e14;}
-    .stMetric {background-color: #1e1e24; padding: 20px; border-radius: 15px; border: 1px solid #333;}
-    h1, h2, h3 {color: #e0e0e0 !important;}
-    .css-1r6slb0 {padding: 1rem;}
+    .stApp {background-color: #0b0e14;}
+    .metric-card {background: #1e1e24; padding: 15px; border-radius: 10px; border: 1px solid #333;}
     </style>
 """, unsafe_allow_html=True)
 
-# 3. Dummy Data (Yahan hum baad mein Google Sheets connect karenge)
-data = {
-    'Date': ['2026-07-01', '2026-07-02', '2026-07-03', '2026-07-04'],
-    'Description': ['Client Payment', 'Electricity Bill', 'Home Transfer', 'University Fee'],
-    'Category': ['Business', 'Bills', 'Personal', 'Fees'],
-    'Type': ['Income', 'Expense', 'Expense', 'Expense'],
-    'Amount': [85000, 12000, 25000, 15000]
+# Tabs setup
+tab1, tab2 = st.tabs(["🏠 Home Dashboard", "💼 Business Dashboard"])
+
+# --- HOME DASHBOARD DATA ---
+home_data = {
+    'Date': ['2026-07-01', '2026-07-02', '2026-07-03'],
+    'Recipient': ['Anoushay', 'Hameez', 'Talha'],
+    'Amount': [10000, 5000, 8000],
+    'Type': ['Sent to Home', 'Self-Transfer', 'Education']
 }
-df = pd.DataFrame(data)
+df_home = pd.DataFrame(home_data)
 
-# 4. Sidebar - Data Entry Form (Professional Entry)
-with st.sidebar:
-    st.header("➕ Add Transaction")
-    with st.form("entry_form"):
-        desc = st.text_input("Description")
-        cat = st.selectbox("Category", ["Business", "Personal", "Bills", "Fees"])
-        t_type = st.radio("Type", ["Income", "Expense"], horizontal=True)
-        amt = st.number_input("Amount (Rs)", min_value=0)
-        submitted = st.form_submit_button("Save Record")
-        if submitted:
-            st.success("Record Added!")
+with tab1:
+    st.title("🏡 Home Finance Tracker")
+    
+    # Metrics for Home
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Sent to Home", f"Rs {df_home[df_home['Recipient']=='Anoushay']['Amount'].sum():,}")
+    c2.metric("Hameez Personal", f"Rs {df_home[df_home['Recipient']=='Hameez']['Amount'].sum():,}")
+    c3.metric("Talha Expenses", f"Rs {df_home[df_home['Recipient']=='Talha']['Amount'].sum():,}")
 
-# 5. Dashboard Top Metrics
-st.title("📊 Financial Intelligence Hub")
-col1, col2, col3, col4 = st.columns(4)
+    # Detailed Table for Home
+    st.subheader("Transaction Log")
+    st.dataframe(df_home, use_container_width=True)
 
-total_income = df[df['Type']=='Income']['Amount'].sum()
-total_exp = df[df['Type']=='Expense']['Amount'].sum()
+    # Visualization
+    fig_home = px.pie(df_home, values='Amount', names='Recipient', title="Distribution of Funds", hole=0.5, template="plotly_dark")
+    st.plotly_chart(fig_home, use_container_width=True)
 
-col1.metric("Total Revenue", f"Rs {total_income:,}", delta="12%")
-col2.metric("Total Expenses", f"Rs {total_exp:,}", delta="-5%", delta_color="inverse")
-col3.metric("Savings", f"Rs {total_income - total_exp:,}")
-col4.metric("Transactions", len(df))
+    # Specific Add Entry for Home
+    with st.expander("➕ Add New Home Entry"):
+        with st.form("home_form"):
+            r = st.selectbox("Who received it?", ["Anoushay", "Hameez", "Talha", "General House"])
+            a = st.number_input("Amount", min_value=0)
+            if st.form_submit_button("Submit"):
+                st.success(f"Added Rs {a} for {r}")
 
-# 6. Charts (Responsive)
-col_a, col_b = st.columns([2, 1])
-
-with col_a:
-    st.subheader("Cash Flow Trend")
-    fig = px.bar(df, x='Date', y='Amount', color='Category', barmode='group', template="plotly_dark")
-    st.plotly_chart(fig, use_container_width=True)
-
-with col_b:
-    st.subheader("Expense Split")
-    fig2 = px.pie(df, values='Amount', names='Category', hole=0.4, color_discrete_sequence=px.colors.sequential.RdBu)
-    st.plotly_chart(fig2, use_container_width=True)
-
-# 7. Detailed Table
-st.subheader("📝 Recent Transactions")
-st.dataframe(df, use_container_width=True)
+# --- BUSINESS DASHBOARD ---
+with tab2:
+    st.title("💼 Business Finance")
+    st.info("Business dashboard under construction. Stay tuned!")
