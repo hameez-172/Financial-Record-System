@@ -42,57 +42,40 @@ with tab1:
     st.dataframe(st.session_state.home_df.style.format({'Amount': '{:,}'}), use_container_width=True)
 
 # --- TAB 2: Business Deals ---
-with tab2:
-    st.title("💼 Business Deals Management")
-    with st.expander("➕ Register New Medical Deal"):
-        with st.form("biz_form", clear_on_submit=True):
-            c1, c2, c3 = st.columns(3)
-            client = c1.text_input("Client Name")
-            equip = c2.text_input("Equipment")
-            team_member = c3.text_input("Team Member (Optional)")
-            c4, c5, c6 = st.columns(3)
-            deal_val = c4.number_input("Total Deal Value", min_value=0, step=1)
-            cost = c5.number_input("Actual Cost", min_value=0, step=1)
-            sent_pay = c6.number_input("Payment Sent", min_value=0, step=1)
-            if st.form_submit_button("Log Deal"):
-                remaining = int(deal_val - sent_pay)
-                profit = int(deal_val - cost)
-                new_row = pd.DataFrame([{'Date': pd.Timestamp.now().strftime("%Y-%m-%d"), 'Client': client, 'Equipment': equip, 'Deal Value': int(deal_val), 'Cost': int(cost), 'Sent Payment': int(sent_pay), 'Remaining': remaining, 'Profit': profit, 'Team Member': team_member if team_member else "N/A", 'Status': "Pending" if remaining > 0 else "Paid"}])
-                st.session_state.business_df = pd.concat([st.session_state.business_df, new_row], ignore_index=True)
-                st.rerun()
-
-    # Filter Logic
-    f1, f2 = st.columns(2)
-    start_date = f1.date_input("Start Date", value=pd.Timestamp("2026-01-01"))
-    end_date = f2.date_input("End Date", value=pd.Timestamp.now())
-    df_temp = st.session_state.business_df.copy()
-    df_temp['Date'] = pd.to_datetime(df_temp['Date'])
-    df_filtered = df_temp[(df_temp['Date'].dt.date >= start_date) & (df_temp['Date'].dt.date <= end_date)]
-
-    st.subheader("📋 Client's Data (Edit directly in table)")
+# --- TAB 2: Business Deals (Final Fixed Version) ---
+    st.subheader("📋 Client's Data (Click cell to Edit)")
     
-    # Conditional formatting for highlighting in Data Editor
-    def get_color(val):
-        return "background-color: #8b0000" if isinstance(val, (int, float)) and val > 0 else None
-
-    # Displaying and Editing in one go
+    # 1. Edit ke liye sirf DataFrame use karein (Bina Style ke)
     edited_df = st.data_editor(
-        df_filtered.style.map(get_color, subset=['Remaining']).format({
-            'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 'Remaining': '{:,}', 'Profit': '{:,}'
-        }),
+        df_filtered,
         use_container_width=True,
         hide_index=True
     )
     
-    # Refresh data if edited
-    if not edited_df.data.equals(df_filtered):
-        updated_data = edited_df.data.copy()
-        updated_data['Remaining'] = updated_data['Deal Value'] - updated_data['Sent Payment']
-        updated_data['Profit'] = updated_data['Deal Value'] - updated_data['Cost']
-        updated_data['Status'] = updated_data['Remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
-        st.session_state.business_df.update(updated_data)
+    # 2. Sync Logic (Isme .data ka use nahi hoga)
+    if not edited_df.equals(df_filtered):
+        # Calculation update
+        edited_df['Remaining'] = edited_df['Deal Value'] - edited_df['Sent Payment']
+        edited_df['Profit'] = edited_df['Deal Value'] - edited_df['Cost']
+        edited_df['Status'] = edited_df['Remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
+        
+        # Session state update
+        st.session_state.business_df.update(edited_df)
         st.rerun()
 
+    # 3. Highlighted Table (Sirf Display ke liye)
+    def highlight_remaining(val):
+        color = '#8b0000' if isinstance(val, (int, float)) and val > 0 else ''
+        return f'background-color: {color}'
+    
+    st.subheader("📊 Recent Deals View")
+    st.dataframe(
+        df_filtered.style.format({
+            'Deal Value': '{:,}', 'Cost': '{:,}', 'Sent Payment': '{:,}', 
+            'Remaining': '{:,}', 'Profit': '{:,}'
+        }).map(highlight_remaining, subset=['Remaining']), 
+        use_container_width=True
+    )
 # --- TAB 3 ---
 with tab3:
     st.title("📊 Performance Insights")
