@@ -9,10 +9,10 @@ def init_db():
     conn = sqlite3.connect('enterprise.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS home_finance (id INTEGER PRIMARY KEY, recipient TEXT, amount REAL)''')
-    # Added team_member column
+    # Added equipment and team_member columns
     c.execute('''CREATE TABLE IF NOT EXISTS business_deals 
                  (id INTEGER PRIMARY KEY, date TEXT, client TEXT, invoice_no TEXT, 
-                  specs TEXT, quantity REAL, unit_price REAL, total REAL, 
+                  specs TEXT, equipment TEXT, quantity REAL, unit_price REAL, total REAL, 
                   cost REAL, paid REAL, remaining REAL, type TEXT, status TEXT, team_member TEXT)''')
     conn.commit()
     conn.close()
@@ -42,23 +42,22 @@ with tab2:
         client = c1.text_input("Client Name")
         team_member = c2.text_input("Team Member (Optional)")
         
-        c3, c4, c5 = st.columns(3)
+        c3, c4, c5, c6 = st.columns(4)
         specs = c3.text_input("SPECS")
-        qty = c4.number_input("QUANTITY", min_value=0.0, format="%g")
-        u_price = c5.number_input("PER UNIT PRICE", min_value=0.0, format="%g")
+        equipment = c4.text_input("Equipment")
+        qty = c5.number_input("QUANTITY", min_value=0.0, format="%g")
+        u_price = c6.number_input("PER UNIT PRICE", min_value=0.0, format="%g")
         
         if st.form_submit_button("Log Deal"):
-            # Auto-generate unique invoice number
             inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             total = qty * u_price
-            # Paid set to 0 initially, to be edited later
             paid = 0.0
             rem = total - paid
             status = "Pending"
             
             conn = sqlite3.connect('enterprise.db')
-            conn.execute("INSERT INTO business_deals (date, client, invoice_no, specs, quantity, unit_price, total, cost, paid, remaining, type, status, team_member) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                         (datetime.now().strftime("%Y-%m-%d"), client, inv_no, specs, qty, u_price, total, 0, paid, rem, "Invoice", status, team_member))
+            conn.execute("INSERT INTO business_deals (date, client, invoice_no, specs, equipment, quantity, unit_price, total, cost, paid, remaining, type, status, team_member) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (datetime.now().strftime("%Y-%m-%d"), client, inv_no, specs, equipment, qty, u_price, total, 0, paid, rem, "Invoice", status, team_member))
             conn.commit()
             conn.close()
             st.rerun()
@@ -67,13 +66,14 @@ with tab2:
     df_biz = pd.read_sql("SELECT * FROM business_deals", conn)
     
     st.subheader("📋 Edit Recent Deals")
-    # Configuration to format numbers without decimals
+    
+    # Configure to display integers without decimals
     config = {
         "total": st.column_config.NumberColumn(format="%d"),
         "paid": st.column_config.NumberColumn(format="%d"),
         "remaining": st.column_config.NumberColumn(format="%d"),
-        "quantity": st.column_config.NumberColumn(format="%g"),
-        "unit_price": st.column_config.NumberColumn(format="%d")
+        "unit_price": st.column_config.NumberColumn(format="%d"),
+        "cost": st.column_config.NumberColumn(format="%d")
     }
     
     edited_df = st.data_editor(df_biz, use_container_width=True, column_config=config)
@@ -94,9 +94,9 @@ with tab3:
     conn.close()
     if not df.empty:
         st.subheader("Credit Sheet (Receivables)")
-        st.dataframe(df[['client', 'invoice_no', 'team_member', 'total', 'paid', 'remaining', 'status']], use_container_width=True)
+        st.dataframe(df[['client', 'invoice_no', 'equipment', 'team_member', 'total', 'paid', 'remaining', 'status']], use_container_width=True)
         st.subheader("Debit Sheet (Liabilities)")
-        st.dataframe(df[['client', 'invoice_no', 'cost', 'paid']], use_container_width=True)
+        st.dataframe(df[['client', 'invoice_no', 'equipment', 'cost', 'paid']], use_container_width=True)
 
 # --- TAB 4 ---
 with tab4:
