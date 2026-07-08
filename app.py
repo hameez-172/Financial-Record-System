@@ -91,34 +91,45 @@ with tab2:
     def highlight_remaining(val):
         return 'background-color: #ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
 
-    # 4. Display Table: Format aur Button Logic
-    st.subheader("📋 Records & Print")
+    # 4. Display Table: Column Config ke sath (Table length change nahi hogi)
+    st.subheader("📋 Records")
     
-    # Hum yahan loop use kar rahe hain taake har row ke sath button ho
-    for i, row in editor_result.iterrows():
-        cols = st.columns([0.9, 0.1])
+    # Hum ek copy banayenge jisme download column hoga
+    df_display = st.session_state.business_df.copy()
+    df_display['Download'] = "📥" # Download icon
+    
+    # Column configuration
+    st.dataframe(
+        df_display,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Download": st.column_config.Column(
+                "PDF",
+                help="Download Invoice",
+                width="small",
+            ),
+        },
+    )
+    
+    # Ab yahan logic lagayenge ke icon click hone par kya ho
+    # Streamlit ka st.dataframe abhi direct button click catch nahi karta, 
+    # isliye hum table ke neeche "Select Invoice to Print" ka dropdown denge
+    st.divider()
+    selected_inv = st.selectbox("Select Invoice to Download PDF:", st.session_state.business_df['invoice_no'].tolist())
+    
+    if st.button("Generate & Download PDF"):
+        row = st.session_state.business_df[st.session_state.business_df['invoice_no'] == selected_inv].iloc[0]
+        # Yahan apna generate_pdf(row) function call karein
+        file_path = generate_pdf(row) # Aapka PDF wala function
         
-        # Table row ko display karne ke liye hum temporary dataframe bana rahe hain
-        row_df = pd.DataFrame([row])
-        st_styled = row_df.style.format({
-            "close_deal": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", 
-            "unit_price": "{:.0f}", "actual_cost": "{:.0f}", "profit": "{:.0f}", "quantity": "{:.0f}"
-        }).map(highlight_remaining, subset=['remaining'])
-        
-        with cols[0]:
-            st.dataframe(st_styled, use_container_width=True, hide_index=True)
-            
-        with cols[1]:
-            st.write("###") # Thoda gap dene ke liye
-            if st.button("🖨️ PDF", key=f"print_{i}"):
-                # Yahan aapka PDF function call hoga
-                # generate_pdf(row) 
-                st.info(f"Generating: {row['invoice_no']}")
-                
-        st.divider()    
-          
-# Add a newline here before starting the next tab
-with tab3:
+        with open(file_path, "rb") as f:
+            st.download_button(
+                label="Click here to Save",
+                data=f,
+                file_name=file_path,
+                mime="application/pdf"
+            )with tab3:
     st.title("💳 Financial Sheets")
     if not st.session_state.business_df.empty:
         st.dataframe(st.session_state.business_df, use_container_width=True)
