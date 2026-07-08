@@ -9,7 +9,6 @@ def init_db():
     conn = sqlite3.connect('enterprise.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS home_finance (id INTEGER PRIMARY KEY, recipient TEXT, amount REAL)''')
-    # Aapki di gayi tarteeb ke mutabiq table columns
     c.execute('''CREATE TABLE IF NOT EXISTS business_deals 
                  (id INTEGER PRIMARY KEY, date TEXT, invoice_no TEXT, client TEXT, equipment TEXT, specs TEXT, 
                   unit_price REAL, quantity REAL, close_deal REAL, unit_actual_cost REAL, actual_cost REAL, 
@@ -48,10 +47,10 @@ with tab2:
         
         if st.form_submit_button("Log Deal"):
             inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-            close_deal = u_price * qty          # Formula: Unit Price * Quantity
-            actual_cost = unit_actual_cost * qty # Formula: Unit Actual Cost * Quantity
-            remaining = close_deal - paid        # Formula: Close Deal - Paid
-            profit = close_deal - actual_cost    # Formula: Close Deal - Actual Cost
+            close_deal = u_price * qty
+            actual_cost = unit_actual_cost * qty
+            remaining = close_deal - paid
+            profit = close_deal - actual_cost
             status = "Paid" if remaining <= 0 else "Pending"
             
             conn = sqlite3.connect('enterprise.db')
@@ -64,17 +63,19 @@ with tab2:
             conn.close()
             st.rerun()
 
-    st.subheader("📋 Recent Deals")
+    st.subheader("📋 Recent Deals (Edit Remaining to 0 to Pay)")
     
-    # Requirement ke mutabiq Column Order
     cols_order = ['date', 'invoice_no', 'client', 'equipment', 'specs', 'unit_price', 'quantity', 'close_deal', 'unit_actual_cost', 'actual_cost', 'paid', 'remaining', 'profit', 'team_member', 'status']
     
+    # 1. Editor
     edited_df = st.data_editor(
         st.session_state.business_df[cols_order], 
         use_container_width=True, 
-        hide_index=True
+        hide_index=True,
+        key="data_editor_main"
     )
 
+    # 2. Logic: Recalculate status and values
     if not edited_df.equals(st.session_state.business_df[cols_order]):
         edited_df["remaining"] = edited_df["close_deal"] - edited_df["paid"]
         edited_df["profit"] = edited_df["close_deal"] - edited_df["actual_cost"]
@@ -82,28 +83,32 @@ with tab2:
         
         st.session_state.business_df.update(edited_df)
         conn = sqlite3.connect('enterprise.db')
-        edited_df.to_sql('business_deals', conn, if_exists='replace', index=False)
+        st.session_state.business_df.to_sql('business_deals', conn, if_exists='replace', index=False)
         conn.close()
         st.rerun()
 
-    st.dataframe(edited_df.style.format({
-        "close_deal": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", "actual_cost": "{:.0f}", 
-        "profit": "{:.0f}", "unit_price": "{:.0f}", "unit_actual_cost": "{:.0f}", "quantity": "{:.0f}"
-    }), use_container_width=True)
-    # Tabs 3 and 4...
+    # 3. Highlight Function
+    def highlight_remaining(val):
+        color = '#ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
+        return f'background-color: {color}'
+
+    # 4. Display Table
+    st.dataframe(
+        st.session_state.business_df[cols_order].style.format({
+            "close_deal": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", "actual_cost": "{:.0f}", 
+            "profit": "{:.0f}", "unit_price": "{:.0f}", "unit_actual_cost": "{:.0f}", "quantity": "{:.0f}"
+        }).map(highlight_remaining, subset=['remaining']),
+        use_container_width=True
+    )
+
 with tab3:
     st.title("💳 Financial Sheets")
-    df = st.session_state.business_df
-    if not df.empty:
-        st.dataframe(df[cols_order], use_container_width=True)
+    if not st.session_state.business_df.empty:
+        st.dataframe(st.session_state.business_df, use_container_width=True)
 
 with tab4:
     st.title("📊 Performance Insights")
-    df_biz = st.session_state.business_df
-    if not df_biz.empty:
-        # Metric mein 'close_deal' use karna sahi hai
-        st.metric("Total Revenue", f"Rs {int(df_biz['close_deal'].sum()):,}")
-        
-        # Plotly chart mein 'total' ki jagah 'close_deal' likhein
-        fig = px.bar(df_biz, x='invoice_no', y='close_deal', template="plotly_dark")
+    if not st.session_state.business_df.empty:
+        st.metric("Total Revenue", f"Rs {int(st.session_state.business_df['close_deal'].sum()):,}")
+        fig = px.bar(st.session_state.business_df, x='invoice_no', y='close_deal', template="plotly_dark")
         st.plotly_chart(fig, use_container_width=True)
