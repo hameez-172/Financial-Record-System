@@ -63,6 +63,7 @@ with tab2:
             conn.close()
             st.rerun()
 
+    # 📋 Recent Deals section
     st.subheader("📋 Recent Deals (Edit Remaining to 0 to Pay)")
     
     cols_order = ['date', 'invoice_no', 'client', 'equipment', 'specs', 'unit_price', 'quantity', 'close_deal', 'unit_actual_cost', 'actual_cost', 'paid', 'remaining', 'profit', 'team_member', 'status']
@@ -75,24 +76,29 @@ with tab2:
         key="data_editor_main"
     )
 
-    # 2. Logic: Recalculate status and values
+    # 2. Logic: Sirf tabhi run ho jab user edit kare
     if not edited_df.equals(st.session_state.business_df[cols_order]):
+        # Calculations perform karein
         edited_df["remaining"] = edited_df["close_deal"] - edited_df["paid"]
         edited_df["profit"] = edited_df["close_deal"] - edited_df["actual_cost"]
         edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
         
+        # Session state update karein
         st.session_state.business_df.update(edited_df)
+        
+        # Database mein save karein
         conn = sqlite3.connect('enterprise.db')
         st.session_state.business_df.to_sql('business_deals', conn, if_exists='replace', index=False)
         conn.close()
-        st.rerun()
+        st.rerun() # Page refresh hoga aur coloring update ho jayegi
 
     # 3. Highlight Function
     def highlight_remaining(val):
+        # Agar value 0 ya negative hai to koi color nahi (unhighlighted)
         color = '#ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
         return f'background-color: {color}'
 
-    # 4. Display Table
+    # 4. Display Table with Styling
     st.dataframe(
         st.session_state.business_df[cols_order].style.format({
             "close_deal": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", "actual_cost": "{:.0f}", 
@@ -100,7 +106,6 @@ with tab2:
         }).map(highlight_remaining, subset=['remaining']),
         use_container_width=True
     )
-
 with tab3:
     st.title("💳 Financial Sheets")
     if not st.session_state.business_df.empty:
