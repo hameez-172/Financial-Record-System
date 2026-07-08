@@ -99,14 +99,12 @@ def generate_pdf(row):
     
     file_path = f"Invoice_{row['invoice_no']}.pdf"
     # --- Footer Section Layout ---
-    # Footer se thoda upar line draw karna
+    # Footer se upar thoda space banate hain (y=210)
     pdf.set_draw_color(200, 200, 200)
-    pdf.line(10, 240, 200, 240)
+    pdf.line(10, 208, 200, 208) # Line ko thoda upar shift kiya
 
-    # --- Ek hi level par sab kuch (y=245) ---
-    
-    # 1. Regards & Account Details (Left side)
-    pdf.set_xy(15, 245)
+    # --- Regards & Account Details (Left side, y=210) ---
+    pdf.set_xy(15, 210)
     pdf.set_font("Arial", "I", 9)
     pdf.cell(90, 5, "Regards,", ln=1)
     
@@ -124,12 +122,12 @@ def generate_pdf(row):
     pdf.set_text_color(0, 0, 0) # Black
     pdf.multi_cell(90, 4, "Badar Diagnostics & Medical Equipment\nFaysal Bank\n0155007000005585")
 
-    # 2. Stamp (Right side, usi level par)
+    # --- Stamp (Right side, y=210) ---
     if os.path.exists("stamp.jpg"):
-        # stamp ko regards/account details ke samne rakha hai
-        pdf.image("stamp.jpg", x=140, y=245, w=35)
+        # Stamp ko bhi y=210 par rakha hai taaki alignment sahi rahe
+        pdf.image("stamp.jpg", x=140, y=210, w=35)
     
-    # File save aur return
+    # File save
     file_path = f"Invoice_{row['invoice_no']}.pdf"
     pdf.output(file_path)
     return file_path
