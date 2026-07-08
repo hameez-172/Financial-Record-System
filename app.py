@@ -27,7 +27,7 @@ class InvoicePDF(FPDF):
         
         # Contact Info
         self.set_y(276); self.set_font("Arial", "B", 8)
-        self.cell(0, 4, "📞 0300-7303020, 0334-7303020     ✉ E-mail: munir.badar1@gmail.com", align="C")
+        self.cell(0, 4, " 0300-7303020, 0334-7303020      E-mail: munir.badar1@gmail.com", align="C")
 
 def generate_pdf(row):
     pdf = InvoicePDF()
