@@ -102,7 +102,7 @@ def generate_pdf(row):
 
     # Adding the Stamp
     # x=150, y=200 are the coordinates, 40 is the width of the stamp in mm
-    pdf.image('stamp.png', x=150, y=200, w=40) 
+    pdf.image('stamp.jpg', x=150, y=200, w=40) 
     
     file_path = f"Invoice_{row['invoice_no']}.pdf"
     pdf.output(file_path)
