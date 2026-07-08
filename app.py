@@ -102,15 +102,7 @@ with tab2:
     )
     
     st.dataframe(st_styled, use_container_width=True, hide_index=True)
-    # 4. Display Table: Styling apply ki gayi hai
-    # Sirf unhi columns ko dikhayen jo aap dekhna chahte hain
-    cols_to_show = ["date", "invoice_no", "client", "equipment", "close_deal", "paid", "remaining", "status"]
-    
-    st_styled = st.session_state.business_df[cols_to_show].style.map(
-        highlight_remaining, subset=['remaining']
-    )
-    
-    st.dataframe(st_styled, use_container_width=True)
+   
 # Add a newline here before starting the next tab
 with tab3:
     st.title("💳 Financial Sheets")
