@@ -61,21 +61,20 @@ with tab2:
         if st.form_submit_button("Log Deal"):
             inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             total = qty * u_price
-            actual_cost = qty * unit_actual_cost # Formula: Qty * Per Unit Cost
-            remaining = actual_cost - paid       # Formula: Actual Cost - Paid
+            actual_cost = qty * unit_actual_cost
+            remaining = actual_cost - paid
             status = "Paid" if remaining <= 0 else "Pending"
             
             conn = sqlite3.connect('enterprise.db')
-            # Order: Date, Inv No, Client, Equip, Specs, Unit Price, Total, Per Unit Cost, Actual Cost, Paid, Remaining, Team Member, Status
+            # Table structure ke mutabiq columns ka order set kiya hai
             conn.execute("""INSERT INTO business_deals 
-                          (date, invoice_no, client, equipment, specs, unit_price, total, cost, paid, remaining, team_member, status, quantity) 
+                          (date, client, invoice_no, specs, equipment, quantity, unit_price, total, cost, paid, remaining, type, status, team_member) 
                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                         (datetime.now().strftime("%Y-%m-%d"), inv_no, client, equipment, specs, u_price, total, unit_actual_cost, actual_cost, paid, remaining, team_member, status, qty))
+                         (datetime.now().strftime("%Y-%m-%d"), client, inv_no, specs, equipment, qty, u_price, total, actual_cost, paid, remaining, "Invoice", status, team_member))
             conn.commit()
             st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
             conn.close()
             st.rerun()
-
     st.subheader("📋 Recent Deals (Edit Remaining to 0 to Pay)")
 
     # Columns display order
