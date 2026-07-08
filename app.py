@@ -33,37 +33,69 @@ def generate_pdf(row):
     pdf = InvoicePDF()
     pdf.add_page()
     
-    # --- Invoice Header ---
-    pdf.set_font("Arial", "B", 12); pdf.set_text_color(0, 153, 224)
-    pdf.set_xy(15, 45); pdf.cell(10, 5, "No."); pdf.set_text_color(0, 0, 0)
-    pdf.set_xy(25, 45); pdf.cell(40, 5, f"{row['invoice_no']}"); pdf.line(25, 50, 65, 50)
+    # Blue Color Definition
+    blue_color = (0, 153, 224)
     
-    pdf.set_text_color(0, 153, 224); pdf.set_xy(155, 45); pdf.cell(10, 5, "Date")
-    pdf.set_text_color(0, 0, 0); pdf.set_xy(165, 45); pdf.cell(40, 5, f"{row['date']}"); pdf.line(165, 50, 195, 50)
+    # 1. Invoice No. Section
+    pdf.set_xy(15, 45)
+    pdf.set_font("Arial", "B", 12)
+    pdf.set_text_color(*blue_color)
+    pdf.cell(10, 5, "No.")
     
-    pdf.set_xy(15, 58); pdf.set_font("Arial", "B", 12); pdf.cell(0, 6, f"To: {row['client']}")
+    pdf.set_text_color(0, 0, 0) # Black color for text
+    pdf.set_font("Arial", "", 12)
+    pdf.set_xy(25, 45)
+    pdf.cell(40, 5, f"{row['invoice_no']}")
+    pdf.set_draw_color(*blue_color)
+    pdf.line(25, 50, 65, 50) # Blue Underline
     
-    # --- Table ---
-    y = 85; pdf.set_xy(25, y)
+    # 2. Date Section
+    pdf.set_xy(155, 45)
+    pdf.set_font("Arial", "B", 12)
+    pdf.set_text_color(*blue_color)
+    pdf.cell(10, 5, "Date")
+    
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Arial", "", 12)
+    pdf.set_xy(165, 45)
+    pdf.cell(40, 5, f"{row['date']}")
+    pdf.line(165, 50, 195, 50) # Blue Underline
+    
+    # 3. Client Name
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_xy(15, 58)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 6, f"To: {row['client']}")
+    
+    # Title
+    pdf.set_xy(0, 70)
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(210, 8, "INVOICE", align="C")
+
+    # Table Header
+    y = 85
+    pdf.set_xy(25, y)
     pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
-    headers = ["SR #", "PRODUCT", "SPECS", "QTY", "PRICE", "TOTAL"]
-    widths = [15, 45, 40, 15, 25, 25]
-    for i, h in enumerate(headers): pdf.cell(widths[i], 8, h, 1, 0, "C", True)
-    pdf.ln()
-    
+    pdf.cell(15, 8, "SR #", 1, 0, "C", True)
+    pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
+    pdf.cell(40, 8, "SPECS", 1, 0, "C", True) 
+    pdf.cell(15, 8, "QTY", 1, 0, "C", True)
+    pdf.cell(25, 8, "PRICE", 1, 0, "C", True)
+    pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
+
+    # Table Data Row
     pdf.set_font("Arial", "", 9); pdf.set_x(25)
-    pdf.cell(15, 8, "1", 1, 0, "C"); pdf.cell(45, 8, str(row['equipment']), 1)
-    pdf.cell(40, 8, str(row['specs']), 1); pdf.cell(15, 8, str(row['quantity']), 1, 0, "C")
-    pdf.cell(25, 8, f"{row['unit_price']:.0f}", 1, 0, "C"); pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C")
-    
-    # --- Left Side: Account Details ---
-    pdf.set_y(150); pdf.set_font("Arial", "B", 10); pdf.cell(0, 5, "Account Details:", ln=1)
-    pdf.set_font("Arial", "", 9)
-    pdf.multi_cell(0, 4, "Badar Diagnostics & Medical Equipment\nFaysal Bank: 0155007000005585\nLahore")
-    
-    # --- Right Side: Stamp & Signature ---
-    if os.path.exists("stamp.png"): pdf.image("stamp.png", x=140, y=160, w=40)
-    pdf.set_xy(140, 205); pdf.set_font("Arial", "B", 10); pdf.cell(40, 5, "Authorized Signatory", align="C")
+    pdf.cell(15, 8, "1", 1, 0, "C")
+    pdf.cell(45, 8, str(row['equipment']), 1)
+    pdf.cell(40, 8, str(row['specs']), 1) 
+    pdf.cell(15, 8, str(row['quantity']), 1, 0, "C")
+    pdf.cell(25, 8, f"{row['unit_price']:.0f}", 1, 0, "C")
+    pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C")
+
+    # Grand Total
+    pdf.set_x(125); pdf.set_font("Arial", "B", 10)
+    pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
+    pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C", True)
     
     file_path = f"Invoice_{row['invoice_no']}.pdf"
     pdf.output(file_path)
