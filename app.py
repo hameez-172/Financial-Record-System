@@ -99,7 +99,33 @@ def generate_pdf(row):
     
     file_path = f"Invoice_{row['invoice_no']}.pdf"
     # ... (rest of your existing code)
+    # --- Footer Account Details (Left Side) ---
+    pdf.set_xy(15, 260)
+    pdf.set_font("Arial", "B", 9)
+    pdf.set_text_color(0, 0, 0)
+    pdf.cell(0, 5, "Account Details:", ln=1)
+    
+    pdf.set_x(15)
+    pdf.set_font("Arial", "", 8)
+    pdf.multi_cell(0, 4, "Badar Diagnostics & Medical Equipment\nFaysal Bank\n0155007000005585")
 
+    # --- Regards & Stamp (Right Side) ---
+    # Coordinates adjust kiye hain footer ke uper
+    pdf.set_xy(140, 245) 
+    pdf.set_font("Arial", "I", 9)
+    pdf.cell(40, 5, "Regards,", ln=1, align="C")
+    
+    pdf.set_x(140)
+    pdf.set_font("Arial", "B", 9)
+    pdf.cell(40, 5, "Badar Diagnostics &", ln=1, align="C")
+    pdf.set_x(140)
+    pdf.cell(40, 5, "Medical Equipment, Lahore", ln=1, align="C")
+
+    # Stamp positioning (Footer ke kareeb)
+    if os.path.exists("stamp.jpg"):
+        pdf.image("stamp.jpg", x=145, y=265, w=30)
+    
+    file_path = f"Invoice_{row['invoice_no']}.pdf"    
     # Adding the Stamp
     # x=150, y=200 are the coordinates, 40 is the width of the stamp in mm
     pdf.image('stamp.jpg', x=150, y=200, w=40) 
