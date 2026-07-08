@@ -20,8 +20,8 @@ class InvoicePDF(FPDF):
         self.set_y(262); self.set_text_color(255, 255, 255); self.set_font("Arial", "", 7)
         self.multi_cell(0, 3.5, "Lahore Office: D Block Nawab Town, Lahore   |   Okara Office: Adjacent Ibn-e-Sina Lab, Opposite DHQ, Okara\nPindi Office: Commercial Market, Rawalpindi   |   Bahawalpur Office: Model Town C, Bahawalpur", align="C")
         self.set_y(276); self.set_font("Arial", "B", 8)
-        self.cell(0, 4, "📞 0300-7303020, 0334-7303020     ✉ E-mail: munir.badar1@gmail.com", align="C")
-
+        # Emojis hata diye hain kyunki wo FPDF error dete hain
+        self.cell(0, 4, "Ph: 0300-7303020, 0334-7303020     E-mail: munir.badar1@gmail.com", align="C")
 def generate_pdf(row):
     pdf = InvoicePDF()
     pdf.add_page()
