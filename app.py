@@ -12,7 +12,7 @@ def init_db():
     # Aapki di gayi tarteeb ke mutabiq table columns
     c.execute('''CREATE TABLE IF NOT EXISTS business_deals 
                  (id INTEGER PRIMARY KEY, date TEXT, invoice_no TEXT, client TEXT, equipment TEXT, specs TEXT, 
-                  unit_price REAL, total REAL, unit_actual_cost REAL, actual_cost REAL, close_deal REAL, 
+                  unit_price REAL, quantity REAL, close_deal REAL, unit_actual_cost REAL, actual_cost REAL, 
                   paid REAL, remaining REAL, profit REAL, team_member TEXT, status TEXT)''')
     conn.commit()
     conn.close()
@@ -48,18 +48,17 @@ with tab2:
         
         if st.form_submit_button("Log Deal"):
             inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-            total = qty * u_price
-            actual_cost = qty * unit_actual_cost
-            close_deal = actual_cost # Aapne kaha close deal aur cost ek hi hain
-            remaining = close_deal - paid
-            profit = paid - close_deal
+            close_deal = u_price * qty          # Formula: Unit Price * Quantity
+            actual_cost = unit_actual_cost * qty # Formula: Unit Actual Cost * Quantity
+            remaining = close_deal - paid        # Formula: Close Deal - Paid
+            profit = close_deal - actual_cost    # Formula: Close Deal - Actual Cost
             status = "Paid" if remaining <= 0 else "Pending"
             
             conn = sqlite3.connect('enterprise.db')
             conn.execute("""INSERT INTO business_deals 
-                          (date, invoice_no, client, equipment, specs, unit_price, total, unit_actual_cost, actual_cost, close_deal, paid, remaining, profit, team_member, status) 
+                          (date, invoice_no, client, equipment, specs, unit_price, quantity, close_deal, unit_actual_cost, actual_cost, paid, remaining, profit, team_member, status) 
                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                         (datetime.now().strftime("%Y-%m-%d"), inv_no, client, equipment, specs, u_price, total, unit_actual_cost, actual_cost, close_deal, paid, remaining, profit, team_member, status))
+                         (datetime.now().strftime("%Y-%m-%d"), inv_no, client, equipment, specs, u_price, qty, close_deal, unit_actual_cost, actual_cost, paid, remaining, profit, team_member, status))
             conn.commit()
             st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
             conn.close()
@@ -68,7 +67,7 @@ with tab2:
     st.subheader("📋 Recent Deals")
     
     # Requirement ke mutabiq Column Order
-    cols_order = ['date', 'invoice_no', 'client', 'equipment', 'specs', 'unit_price', 'total', 'unit_actual_cost', 'actual_cost', 'close_deal', 'paid', 'remaining', 'profit', 'team_member', 'status']
+    cols_order = ['date', 'invoice_no', 'client', 'equipment', 'specs', 'unit_price', 'quantity', 'close_deal', 'unit_actual_cost', 'actual_cost', 'paid', 'remaining', 'profit', 'team_member', 'status']
     
     edited_df = st.data_editor(
         st.session_state.business_df[cols_order], 
@@ -78,7 +77,7 @@ with tab2:
 
     if not edited_df.equals(st.session_state.business_df[cols_order]):
         edited_df["remaining"] = edited_df["close_deal"] - edited_df["paid"]
-        edited_df["profit"] = edited_df["paid"] - edited_df["close_deal"]
+        edited_df["profit"] = edited_df["close_deal"] - edited_df["actual_cost"]
         edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
         
         st.session_state.business_df.update(edited_df)
@@ -88,10 +87,10 @@ with tab2:
         st.rerun()
 
     st.dataframe(edited_df.style.format({
-        "total": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", "actual_cost": "{:.0f}", "close_deal": "{:.0f}", 
-        "profit": "{:.0f}", "unit_price": "{:.0f}", "unit_actual_cost": "{:.0f}"
+        "close_deal": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", "actual_cost": "{:.0f}", 
+        "profit": "{:.0f}", "unit_price": "{:.0f}", "unit_actual_cost": "{:.0f}", "quantity": "{:.0f}"
     }), use_container_width=True)
-# Tabs 3 and 4...
+    # Tabs 3 and 4...
 with tab3:
     st.title("💳 Financial Sheets")
     df = st.session_state.business_df
