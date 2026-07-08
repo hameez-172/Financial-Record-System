@@ -26,32 +26,46 @@ def generate_pdf(row):
     pdf = InvoicePDF()
     pdf.add_page()
     
-    # Header Details (Invoice No & Date)
-    pdf.set_font("Arial", "B", 10)
-    pdf.set_text_color(0, 0, 0)
+    # Blue Color Definition
+    blue_color = (0, 153, 224)
     
-    # Invoice No section
+    # 1. Invoice No. Section
     pdf.set_xy(15, 45)
-    pdf.cell(0, 5, f"No. {row['invoice_no']}")
-    pdf.set_draw_color(0, 153, 224) # Blue color
-    pdf.line(15, 50, 55, 50)        # Underline for Invoice No
+    pdf.set_font("Arial", "B", 12)
+    pdf.set_text_color(*blue_color)
+    pdf.cell(10, 5, "No.")
     
-    # Date section
+    pdf.set_text_color(0, 0, 0) # Black color for text
+    pdf.set_font("Arial", "", 12)
+    pdf.set_xy(25, 45)
+    pdf.cell(40, 5, f"{row['invoice_no']}")
+    pdf.set_draw_color(*blue_color)
+    pdf.line(25, 50, 65, 50) # Blue Underline
+    
+    # 2. Date Section
     pdf.set_xy(155, 45)
-    pdf.cell(0, 5, f"Date: {row['date']}")
-    pdf.line(155, 50, 195, 50)      # Underline for Date
+    pdf.set_font("Arial", "B", 12)
+    pdf.set_text_color(*blue_color)
+    pdf.cell(10, 5, "Date")
     
-    # Client Name
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Arial", "", 12)
+    pdf.set_xy(165, 45)
+    pdf.cell(40, 5, f"{row['date']}")
+    pdf.line(165, 50, 195, 50) # Blue Underline
+    
+    # 3. Client Name
+    pdf.set_text_color(0, 0, 0)
     pdf.set_xy(15, 58)
     pdf.set_font("Arial", "B", 12)
     pdf.cell(0, 6, f"To: {row['client']}")
     
-    # INVOICE Title
-    pdf.set_xy(0, 68)
-    pdf.set_font("Arial", "B", 14)
+    # Title
+    pdf.set_xy(0, 70)
+    pdf.set_font("Arial", "B", 16)
     pdf.cell(210, 8, "INVOICE", align="C")
 
-    # Table Header (SPECS ke sath)
+    # Table Header
     y = 85
     pdf.set_xy(25, y)
     pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
