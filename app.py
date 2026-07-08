@@ -9,7 +9,6 @@ def init_db():
     conn = sqlite3.connect('enterprise.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS home_finance (id INTEGER PRIMARY KEY, recipient TEXT, amount REAL)''')
-    # Added equipment and team_member columns
     c.execute('''CREATE TABLE IF NOT EXISTS business_deals 
                  (id INTEGER PRIMARY KEY, date TEXT, client TEXT, invoice_no TEXT, 
                   specs TEXT, equipment TEXT, quantity REAL, unit_price REAL, total REAL, 
@@ -21,15 +20,22 @@ init_db()
 
 st.set_page_config(page_title="Hameez Enterprise Hub", layout="wide")
 
+# --- INITIALIZE SESSION STATE ---
+if 'business_df' not in st.session_state:
+    conn = sqlite3.connect('enterprise.db')
+    st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
+    conn.close()
+
 tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit Sheets", "📊 Analytics"])
 
-# --- TAB 1 ---
+# --- TAB 1: Home Finance ---
 with tab1:
     st.title("🏡 Home Finance Tracker")
     conn = sqlite3.connect('enterprise.db')
     if st.button("Add General Entry"):
         conn.execute("INSERT INTO home_finance (recipient, amount) VALUES ('General', 0)")
         conn.commit()
+        st.rerun()
     st.dataframe(pd.read_sql("SELECT * FROM home_finance", conn), use_container_width=True)
     conn.close()
 
@@ -51,59 +57,59 @@ with tab2:
         if st.form_submit_button("Log Deal"):
             inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             total = qty * u_price
-            paid = 0.0
-            rem = total - paid
-            status = "Pending"
             
             conn = sqlite3.connect('enterprise.db')
             conn.execute("INSERT INTO business_deals (date, client, invoice_no, specs, equipment, quantity, unit_price, total, cost, paid, remaining, type, status, team_member) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                         (datetime.now().strftime("%Y-%m-%d"), client, inv_no, specs, equipment, qty, u_price, total, 0, paid, rem, "Invoice", status, team_member))
+                         (datetime.now().strftime("%Y-%m-%d"), client, inv_no, specs, equipment, qty, u_price, total, 0, total, "Invoice", "Pending", team_member))
             conn.commit()
+            st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
             conn.close()
             st.rerun()
 
-    conn = sqlite3.connect('enterprise.db')
-    df_biz = pd.read_sql("SELECT * FROM business_deals", conn)
-    
-    st.subheader("📋 Edit Recent Deals")
-    
-    # Configure to display integers without decimals
-    config = {
-        "total": st.column_config.NumberColumn(format="%d"),
-        "paid": st.column_config.NumberColumn(format="%d"),
-        "remaining": st.column_config.NumberColumn(format="%d"),
-        "unit_price": st.column_config.NumberColumn(format="%d"),
-        "cost": st.column_config.NumberColumn(format="%d")
-    }
-    
-    edited_df = st.data_editor(df_biz, use_container_width=True, column_config=config)
-    
-    if st.button("Save Changes to Database"):
-        edited_df['remaining'] = edited_df['total'] - edited_df['paid']
-        edited_df['status'] = edited_df['remaining'].apply(lambda x: "Paid" if x <= 0 else "Pending")
-        edited_df.to_sql('business_deals', conn, if_exists='replace', index=False)
-        st.success("Database Updated!")
-        st.rerun()
-    conn.close()
+    st.subheader("📋 Recent Deals (Edit Remaining to 0 to Pay)")
 
-# --- TAB 3 ---
+    # Data Editor
+    edited_df = st.data_editor(
+        st.session_state.business_df, 
+        use_container_width=True, 
+        hide_index=True,
+        key="data_editor_main"
+    )
+
+    # Logic: Status update
+    if not edited_df.equals(st.session_state.business_df):
+        edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
+        st.session_state.business_df = edited_df
+        
+        conn = sqlite3.connect('enterprise.db')
+        edited_df.to_sql('business_deals', conn, if_exists='replace', index=False)
+        conn.close()
+        st.rerun()
+
+    # Highlight Logic
+    def highlight_remaining(val):
+        color = '#ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
+        return f'background-color: {color}'
+
+    st.dataframe(
+        st.session_state.business_df.style.map(highlight_remaining, subset=['remaining']),
+        use_container_width=True
+    )
+
+# --- TAB 3: Sheets ---
 with tab3:
     st.title("💳 Financial Sheets")
-    conn = sqlite3.connect('enterprise.db')
-    df = pd.read_sql("SELECT * FROM business_deals", conn)
-    conn.close()
+    df = st.session_state.business_df
     if not df.empty:
         st.subheader("Credit Sheet (Receivables)")
         st.dataframe(df[['client', 'invoice_no', 'equipment', 'team_member', 'total', 'paid', 'remaining', 'status']], use_container_width=True)
         st.subheader("Debit Sheet (Liabilities)")
         st.dataframe(df[['client', 'invoice_no', 'equipment', 'cost', 'paid']], use_container_width=True)
 
-# --- TAB 4 ---
+# --- TAB 4: Analytics ---
 with tab4:
     st.title("📊 Performance Insights")
-    conn = sqlite3.connect('enterprise.db')
-    df_biz = pd.read_sql("SELECT * FROM business_deals", conn)
-    conn.close()
+    df_biz = st.session_state.business_df
     if not df_biz.empty:
         st.metric("Total Revenue", f"Rs {int(df_biz['total'].sum()):,}")
         fig = px.bar(df_biz, x='invoice_no', y='total', template="plotly_dark")
