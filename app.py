@@ -101,5 +101,5 @@ with tab4:
     st.title("📊 Performance Insights")
     df_biz = st.session_state.business_df
     if not df_biz.empty:
-        st.metric("Total Revenue", f"Rs {int(df_biz['total'].sum()):,}")
+        st.metric("Total Revenue", f"Rs {int(df_biz['close_deal'].sum()):,}")
         st.plotly_chart(px.bar(df_biz, x='invoice_no', y='total', template="plotly_dark"), use_container_width=True)
