@@ -107,11 +107,13 @@ with tab2:
         "profit": "{:.0f}", "unit_price": "{:.0f}", "unit_actual_cost": "{:.0f}", "quantity": "{:.0f}"
     }).map(highlight_remaining, subset=['remaining'])
     
-    st.dataframe(st_styled, use_container_width=True)with tab3:
+    st.dataframe(st_styled, use_container_width=True)
+
+# Add a newline here before starting the next tab
+with tab3:
     st.title("💳 Financial Sheets")
     if not st.session_state.business_df.empty:
         st.dataframe(st.session_state.business_df, use_container_width=True)
-
 with tab4:
     st.title("📊 Performance Insights")
     if not st.session_state.business_df.empty:
