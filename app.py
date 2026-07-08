@@ -65,8 +65,6 @@ with tab2:
 
     # 📋 Recent Deals section
     # 📋 Recent Deals section
-    # 📋 Recent Deals section
-   # 📋 Recent Deals section
     st.subheader("📋 Recent Deals")
 
     # 1. Editor
@@ -77,21 +75,15 @@ with tab2:
         key="data_editor_main"
     )
 
-    # 2. Logic: Sirf tab chale jab 'remaining' column edit ho
+    # 2. Logic: Sirf 'remaining' edit hone par update kare
     if "data_editor_main" in st.session_state and st.session_state["data_editor_main"]["edited_rows"]:
         edited_rows = st.session_state["data_editor_main"]["edited_rows"]
-        
         if any('remaining' in row for row in edited_rows.values()):
             edited_df = editor_result.copy()
-            
-            # Status update
             edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
-            
-            # Database update
             conn = sqlite3.connect('enterprise.db')
             edited_df.to_sql('business_deals', conn, if_exists='replace', index=False)
             conn.close()
-            
             st.session_state.business_df = edited_df
             st.rerun()
     
@@ -99,24 +91,31 @@ with tab2:
     def highlight_remaining(val):
         return 'background-color: #ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
 
-    # 4. Display Table: Formatting ke saath (Yahan se 8000.00000 khatam hoga)
-    st_styled = editor_result.style.format({
-        "close_deal": "{:.0f}", 
-        "paid": "{:.0f}", 
-        "remaining": "{:.0f}", 
-        "unit_price": "{:.0f}", 
-        "unit_actual_cost": "{:.0f}", 
-        "actual_cost": "{:.0f}", 
-        "profit": "{:.0f}", 
-        "quantity": "{:.0f}"
-    }).map(highlight_remaining, subset=['remaining'])
+    # 4. Display Table: Format aur Button Logic
+    st.subheader("📋 Records & Print")
     
-    st.dataframe(st_styled, use_container_width=True, hide_index=True)
-    # 4. Display Table: Style apply karein
-    st_styled = editor_result.style.map(
-        highlight_remaining, subset=['remaining']
-    )
-    
+    # Hum yahan loop use kar rahe hain taake har row ke sath button ho
+    for i, row in editor_result.iterrows():
+        cols = st.columns([0.9, 0.1])
+        
+        # Table row ko display karne ke liye hum temporary dataframe bana rahe hain
+        row_df = pd.DataFrame([row])
+        st_styled = row_df.style.format({
+            "close_deal": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", 
+            "unit_price": "{:.0f}", "actual_cost": "{:.0f}", "profit": "{:.0f}", "quantity": "{:.0f}"
+        }).map(highlight_remaining, subset=['remaining'])
+        
+        with cols[0]:
+            st.dataframe(st_styled, use_container_width=True, hide_index=True)
+            
+        with cols[1]:
+            st.write("###") # Thoda gap dene ke liye
+            if st.button("🖨️ PDF", key=f"print_{i}"):
+                # Yahan aapka PDF function call hoga
+                # generate_pdf(row) 
+                st.info(f"Generating: {row['invoice_no']}")
+                
+        st.divider()    
           
 # Add a newline here before starting the next tab
 with tab3:
