@@ -9,11 +9,11 @@ def init_db():
     conn = sqlite3.connect('enterprise.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS home_finance (id INTEGER PRIMARY KEY, recipient TEXT, amount REAL)''')
-    # Table structure updated with requested columns
+    # Aapki di gayi tarteeb ke mutabiq table columns
     c.execute('''CREATE TABLE IF NOT EXISTS business_deals 
                  (id INTEGER PRIMARY KEY, date TEXT, invoice_no TEXT, client TEXT, equipment TEXT, specs TEXT, 
-                  unit_price REAL, total REAL, unit_actual_cost REAL, cost REAL, paid REAL, 
-                  remaining REAL, team_member TEXT, status TEXT)''')
+                  unit_price REAL, total REAL, unit_actual_cost REAL, actual_cost REAL, close_deal REAL, 
+                  paid REAL, remaining REAL, profit REAL, team_member TEXT, status TEXT)''')
     conn.commit()
     conn.close()
 
@@ -28,17 +28,6 @@ if 'business_df' not in st.session_state:
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit Sheets", "📊 Analytics"])
 
-with tab1:
-    st.title("🏡 Home Finance Tracker")
-    conn = sqlite3.connect('enterprise.db')
-    if st.button("Add General Entry"):
-        conn.execute("INSERT INTO home_finance (recipient, amount) VALUES ('General', 0)")
-        conn.commit()
-        st.rerun()
-    st.dataframe(pd.read_sql("SELECT * FROM home_finance", conn), use_container_width=True)
-    conn.close()
-
-# --- TAB 2: Business Deals ---
 with tab2:
     st.title("➕ Register & Manage Medical Deal")
     
@@ -61,14 +50,16 @@ with tab2:
             inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             total = qty * u_price
             actual_cost = qty * unit_actual_cost
-            remaining = actual_cost - paid
+            close_deal = actual_cost # Aapne kaha close deal aur cost ek hi hain
+            remaining = close_deal - paid
+            profit = paid - close_deal
             status = "Paid" if remaining <= 0 else "Pending"
             
             conn = sqlite3.connect('enterprise.db')
             conn.execute("""INSERT INTO business_deals 
-                          (date, invoice_no, client, equipment, specs, unit_price, total, unit_actual_cost, cost, paid, remaining, team_member, status) 
-                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                         (datetime.now().strftime("%Y-%m-%d"), inv_no, client, equipment, specs, u_price, total, unit_actual_cost, actual_cost, paid, remaining, team_member, status))
+                          (date, invoice_no, client, equipment, specs, unit_price, total, unit_actual_cost, actual_cost, close_deal, paid, remaining, profit, team_member, status) 
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         (datetime.now().strftime("%Y-%m-%d"), inv_no, client, equipment, specs, u_price, total, unit_actual_cost, actual_cost, close_deal, paid, remaining, profit, team_member, status))
             conn.commit()
             st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
             conn.close()
@@ -77,7 +68,7 @@ with tab2:
     st.subheader("📋 Recent Deals")
     
     # Requirement ke mutabiq Column Order
-    cols_order = ['date', 'invoice_no', 'client', 'equipment', 'specs', 'unit_price', 'total', 'unit_actual_cost', 'cost', 'paid', 'remaining', 'team_member', 'status']
+    cols_order = ['date', 'invoice_no', 'client', 'equipment', 'specs', 'unit_price', 'total', 'unit_actual_cost', 'actual_cost', 'close_deal', 'paid', 'remaining', 'profit', 'team_member', 'status']
     
     edited_df = st.data_editor(
         st.session_state.business_df[cols_order], 
@@ -86,7 +77,8 @@ with tab2:
     )
 
     if not edited_df.equals(st.session_state.business_df[cols_order]):
-        edited_df["remaining"] = edited_df["cost"] - edited_df["paid"]
+        edited_df["remaining"] = edited_df["close_deal"] - edited_df["paid"]
+        edited_df["profit"] = edited_df["paid"] - edited_df["close_deal"]
         edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
         
         st.session_state.business_df.update(edited_df)
@@ -96,9 +88,9 @@ with tab2:
         st.rerun()
 
     st.dataframe(edited_df.style.format({
-        "total": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", "cost": "{:.0f}", "unit_price": "{:.0f}", "unit_actual_cost": "{:.0f}"
+        "total": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", "actual_cost": "{:.0f}", "close_deal": "{:.0f}", 
+        "profit": "{:.0f}", "unit_price": "{:.0f}", "unit_actual_cost": "{:.0f}"
     }), use_container_width=True)
-
 # Tabs 3 and 4...
 with tab3:
     st.title("💳 Financial Sheets")
