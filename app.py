@@ -9,10 +9,11 @@ def init_db():
     conn = sqlite3.connect('enterprise.db')
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS home_finance (id INTEGER PRIMARY KEY, recipient TEXT, amount REAL)''')
+    # Table structure updated with requested columns
     c.execute('''CREATE TABLE IF NOT EXISTS business_deals 
-                 (id INTEGER PRIMARY KEY, date TEXT, client TEXT, invoice_no TEXT, 
-                  specs TEXT, equipment TEXT, quantity REAL, unit_price REAL, total REAL, 
-                  cost REAL, paid REAL, remaining REAL, profit REAL, type TEXT, status TEXT, team_member TEXT)''')    
+                 (id INTEGER PRIMARY KEY, date TEXT, invoice_no TEXT, client TEXT, equipment TEXT, specs TEXT, 
+                  unit_price REAL, total REAL, unit_actual_cost REAL, cost REAL, paid REAL, 
+                  remaining REAL, team_member TEXT, status TEXT)''')
     conn.commit()
     conn.close()
 
@@ -20,7 +21,6 @@ init_db()
 
 st.set_page_config(page_title="Hameez Enterprise Hub", layout="wide")
 
-# --- INITIALIZE SESSION STATE ---
 if 'business_df' not in st.session_state:
     conn = sqlite3.connect('enterprise.db')
     st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
@@ -28,7 +28,6 @@ if 'business_df' not in st.session_state:
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit Sheets", "📊 Analytics"])
 
-# --- TAB 1 ---
 with tab1:
     st.title("🏡 Home Finance Tracker")
     conn = sqlite3.connect('enterprise.db')
@@ -39,7 +38,6 @@ with tab1:
     st.dataframe(pd.read_sql("SELECT * FROM home_finance", conn), use_container_width=True)
     conn.close()
 
-# --- TAB 2: Business Deals ---
 # --- TAB 2: Business Deals ---
 with tab2:
     st.title("➕ Register & Manage Medical Deal")
@@ -64,25 +62,22 @@ with tab2:
             total = qty * u_price
             actual_cost = qty * unit_actual_cost
             remaining = actual_cost - paid
-            profit = paid - actual_cost # Profit Logic
-            status = "Paid" if (actual_cost - paid) <= 0 else "Pending"
+            status = "Paid" if remaining <= 0 else "Pending"
             
             conn = sqlite3.connect('enterprise.db')
-            # Table mein profit column hona chahiye, agar nahi hai to init_db mein add kar lein
-            # Query: date, client, inv, specs, equip, qty, u_price, total, cost, paid, rem, profit, type, status, team_member
             conn.execute("""INSERT INTO business_deals 
-                          (date, client, invoice_no, specs, equipment, quantity, unit_price, total, cost, paid, remaining, profit, type, status, team_member) 
-                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                         (datetime.now().strftime("%Y-%m-%d"), client, inv_no, specs, equipment, qty, u_price, total, actual_cost, paid, remaining, profit, "Invoice", status, team_member))
+                          (date, invoice_no, client, equipment, specs, unit_price, total, unit_actual_cost, cost, paid, remaining, team_member, status) 
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         (datetime.now().strftime("%Y-%m-%d"), inv_no, client, equipment, specs, u_price, total, unit_actual_cost, actual_cost, paid, remaining, team_member, status))
             conn.commit()
             st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
             conn.close()
             st.rerun()
 
     st.subheader("📋 Recent Deals")
-
-    # Column Order
-    cols_order = ['date', 'invoice_no', 'client', 'equipment', 'specs', 'unit_price', 'total', 'cost', 'paid', 'remaining', 'profit', 'team_member', 'status']
+    
+    # Requirement ke mutabiq Column Order
+    cols_order = ['date', 'invoice_no', 'client', 'equipment', 'specs', 'unit_price', 'total', 'unit_actual_cost', 'cost', 'paid', 'remaining', 'team_member', 'status']
     
     edited_df = st.data_editor(
         st.session_state.business_df[cols_order], 
@@ -92,7 +87,6 @@ with tab2:
 
     if not edited_df.equals(st.session_state.business_df[cols_order]):
         edited_df["remaining"] = edited_df["cost"] - edited_df["paid"]
-        edited_df["profit"] = edited_df["paid"] - edited_df["cost"] # Update Profit
         edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
         
         st.session_state.business_df.update(edited_df)
@@ -102,21 +96,19 @@ with tab2:
         st.rerun()
 
     st.dataframe(edited_df.style.format({
-        "total": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", "cost": "{:.0f}", "profit": "{:.0f}"
-    }), use_container_width=True)# --- TAB 3 & 4 remain functional ---
+        "total": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", "cost": "{:.0f}", "unit_price": "{:.0f}", "unit_actual_cost": "{:.0f}"
+    }), use_container_width=True)
+
+# Tabs 3 and 4...
 with tab3:
     st.title("💳 Financial Sheets")
     df = st.session_state.business_df
     if not df.empty:
-        st.subheader("Credit Sheet (Receivables)")
-        st.dataframe(df[['client', 'invoice_no', 'equipment', 'total', 'paid', 'remaining', 'status']], use_container_width=True)
-        st.subheader("Debit Sheet (Liabilities)")
-        st.dataframe(df[['client', 'invoice_no', 'equipment', 'cost', 'paid']], use_container_width=True)
+        st.dataframe(df[cols_order], use_container_width=True)
 
 with tab4:
     st.title("📊 Performance Insights")
     df_biz = st.session_state.business_df
     if not df_biz.empty:
         st.metric("Total Revenue", f"Rs {int(df_biz['total'].sum()):,}")
-        fig = px.bar(df_biz, x='invoice_no', y='total', template="plotly_dark")
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(px.bar(df_biz, x='invoice_no', y='total', template="plotly_dark"), use_container_width=True)
