@@ -117,8 +117,7 @@ with tab2:
         highlight_remaining, subset=['remaining']
     )
     
-    st.dataframe(st_styled, use_container_width=True, hide_index=True)
-      
+          
 # Add a newline here before starting the next tab
 with tab3:
     st.title("💳 Financial Sheets")
