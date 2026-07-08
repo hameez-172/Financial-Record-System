@@ -64,9 +64,10 @@ with tab2:
             st.rerun()
 
     # 📋 Recent Deals section
+    # 📋 Recent Deals section
     st.subheader("📋 Recent Deals")
 
-    # 1. Editor: Yahan user edit karega
+    # 1. Editor
     edited_df = st.data_editor(
         st.session_state.business_df, 
         use_container_width=True, 
@@ -75,11 +76,10 @@ with tab2:
     )
 
     # 2. Logic: Sirf tab chale jab user ne kuch change kiya ho
-    # Ye part aapki requirement ke mutabiq logic ko intact rakhega
     if not edited_df.equals(st.session_state.business_df):
         # Remaining update
         edited_df["remaining"] = (edited_df["close_deal"] - edited_df["paid"])
-        # Status update (0 ya us se kam par "Paid")
+        # Automatic Status update (Ye wo line hai jo status change karti hai)
         edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
         
         # Database update
@@ -87,14 +87,21 @@ with tab2:
         edited_df.to_sql('business_deals', conn, if_exists='replace', index=False)
         conn.close()
         
-        # Session state update aur Rerun
         st.session_state.business_df = edited_df
         st.rerun()
 
-    # 3. Highlight Function: 0 se upar wali values ko red karega
+    # 3. Highlight Function
     def highlight_remaining(val):
+        # Ye line highlight control karti hai
         return 'background-color: #ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
 
+    # 4. Display Table: Saare columns ke saath
+    # Hum yahan style apply kar rahe hain
+    st_styled = st.session_state.business_df.style.map(
+        highlight_remaining, subset=['remaining']
+    )
+    
+    st.dataframe(st_styled, use_container_width=True, hide_index=True)
     # 4. Display Table: Styling apply ki gayi hai
     # Sirf unhi columns ko dikhayen jo aap dekhna chahte hain
     cols_to_show = ["date", "invoice_no", "client", "equipment", "close_deal", "paid", "remaining", "status"]
