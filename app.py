@@ -99,41 +99,41 @@ def generate_pdf(row):
     
     file_path = f"Invoice_{row['invoice_no']}.pdf"
     # --- Footer Section Layout ---
-    # Separator line
+    # Footer se thoda upar line draw karna
     pdf.set_draw_color(200, 200, 200)
     pdf.line(10, 240, 200, 240)
 
-    # 1. Regards (Left Side, Top)
+    # --- Ek hi level par sab kuch (y=245) ---
+    
+    # 1. Regards & Account Details (Left side)
     pdf.set_xy(15, 245)
-    pdf.set_font("Arial", "I", 10)
+    pdf.set_font("Arial", "I", 9)
     pdf.cell(90, 5, "Regards,", ln=1)
     
     pdf.set_x(15)
-    pdf.set_font("Arial", "B", 10)
+    pdf.set_font("Arial", "B", 9)
     pdf.cell(90, 5, "Badar Diagnostics & Medical Equipment, Lahore", ln=1)
-
-    # 2. Account Details (Left Side, Below Regards)
-    pdf.set_y(260) # Thoda gap diya hai 'Regards' aur 'Account' ke beech
+    
     pdf.set_x(15)
-    pdf.set_font("Arial", "B", 10)
+    pdf.set_font("Arial", "B", 9)
     pdf.set_text_color(0, 51, 102) # Dark Blue
     pdf.cell(90, 5, "Account Details:", ln=1)
     
     pdf.set_x(15)
-    pdf.set_font("Arial", "", 9)
+    pdf.set_font("Arial", "", 8)
     pdf.set_text_color(0, 0, 0) # Black
-    pdf.multi_cell(90, 5, "Account Name: Badar Diagnostics & Medical Equipment\nBank Name: Faysal Bank\nAccount #: 0155007000005585")
+    pdf.multi_cell(90, 4, "Badar Diagnostics & Medical Equipment\nFaysal Bank\n0155007000005585")
 
-    # 3. Stamp (Right Side)
+    # 2. Stamp (Right side, usi level par)
     if os.path.exists("stamp.jpg"):
-        pdf.image("stamp.jpg", x=140, y=250, w=40)
+        # stamp ko regards/account details ke samne rakha hai
+        pdf.image("stamp.jpg", x=140, y=245, w=35)
     
-    # PDF Save
+    # File save aur return
     file_path = f"Invoice_{row['invoice_no']}.pdf"
     pdf.output(file_path)
-    
-    # YE SABSE ZAROORI HAI: Function ko file_path wapas bhejna chahiye
-    return file_path# --- APP SETUP ---
+    return file_path
+    # --- APP SETUP ---
 def init_db():
     conn = sqlite3.connect('enterprise.db')
     c = conn.cursor()
