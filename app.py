@@ -61,14 +61,14 @@ with tab2:
         if st.form_submit_button("Log Deal"):
             inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             total = qty * u_price
-            remaining = total - paid # Yahan logic fix kar di hai
+            remaining = total - paid
             status = "Paid" if remaining <= 0 else "Pending"
             
             conn = sqlite3.connect('enterprise.db')
             conn.execute("""INSERT INTO business_deals 
-                          (date, invoice_no, client, equipment, specs, quantity, unit_price, total, cost, paid, remaining, type, status, team_member) 
-                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                         (datetime.now().strftime("%Y-%m-%d"), inv_no, client, equipment, specs, qty, u_price, total, cost, paid, remaining, "Invoice", status, team_member))
+                         (date, client, invoice_no, specs, equipment, quantity, unit_price, total, cost, paid, remaining, type, status, team_member) 
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         (datetime.now().strftime("%Y-%m-%d"), client, inv_no, specs, equipment, qty, u_price, total, cost, paid, remaining, "Invoice", status, team_member))
             conn.commit()
             st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
             conn.close()
@@ -84,8 +84,6 @@ with tab2:
     )
 
     if not edited_df.equals(st.session_state.business_df):
-        # Calculation logic: remaining update hone par status update hoga
-        edited_df["remaining"] = edited_df["total"] - edited_df["paid"]
         edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
         st.session_state.business_df = edited_df
         
@@ -103,7 +101,7 @@ with tab2:
         use_container_width=True
     )
 
-# --- TAB 3 & 4 ---
+# --- TAB 3 & 4 remain functional ---
 with tab3:
     st.title("💳 Financial Sheets")
     df = st.session_state.business_df
