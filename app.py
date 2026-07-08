@@ -42,31 +42,50 @@ def generate_pdf(row):
     pdf.set_text_color(*blue_color)
     pdf.cell(10, 5, "No.")
     
-    pdf.set_text_color(0, 0, 0) # Black color for text
+    pdf.set_text_color(0, 0, 0)
     pdf.set_font("Arial", "", 12)
+    inv_text = f"{row['invoice_no']}"
     pdf.set_xy(25, 45)
-    pdf.cell(40, 5, f"{row['invoice_no']}")
-    pdf.set_draw_color(*blue_color)
-    pdf.line(25, 50, 65, 50) # Blue Underline
+    pdf.cell(pdf.get_string_width(inv_text), 5, inv_text)
     
-    # 2. Date Section
-    pdf.set_xy(155, 45)
+    # Underline exactly as long as text
+    pdf.set_draw_color(*blue_color)
+    pdf.line(25, 50, 25 + pdf.get_string_width(inv_text), 50)
+    
+    # 2. Date Section (Gap ke sath)
+    date_label = "Date"
+    date_val = f"{row['date']}"
+    
+    pdf.set_xy(140, 45) # Position adjust ki
     pdf.set_font("Arial", "B", 12)
     pdf.set_text_color(*blue_color)
-    pdf.cell(10, 5, "Date")
+    pdf.cell(10, 5, date_label)
     
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("Arial", "", 12)
-    pdf.set_xy(165, 45)
-    pdf.cell(40, 5, f"{row['date']}")
-    pdf.line(165, 50, 195, 50) # Blue Underline
+    # Gap ke liye x coordinate thoda aage badhaya
+    date_x = 140 + pdf.get_string_width(date_label) + 5 
+    pdf.set_xy(date_x, 45)
+    pdf.cell(pdf.get_string_width(date_val), 5, date_val)
     
-    # 3. Client Name
+    # Date Underline
+    pdf.line(date_x, 50, date_x + pdf.get_string_width(date_val), 50)
+    
+    # 3. Client Name (Underline ke sath)
     pdf.set_text_color(0, 0, 0)
     pdf.set_xy(15, 58)
     pdf.set_font("Arial", "B", 12)
-    pdf.cell(0, 6, f"To: {row['client']}")
+    client_label = "To: "
+    client_name = f"{row['client']}"
     
+    pdf.cell(pdf.get_string_width(client_label), 6, client_label)
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(pdf.get_string_width(client_name), 6, client_name)
+    
+    # Client Name Underline
+    pdf.set_draw_color(0, 0, 0) # Black underline for client
+    pdf.line(15 + pdf.get_string_width(client_label), 64, 
+             15 + pdf.get_string_width(client_label) + pdf.get_string_width(client_name), 64)    
     # Title
     pdf.set_xy(0, 70)
     pdf.set_font("Arial", "B", 16)
