@@ -45,30 +45,32 @@ with tab2:
     
     with st.form("biz_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
-        client = c1.text_input("Client Name")
+        client = c1.text_input("Client Name/Hospital")
         team_member = c2.text_input("Team Member (Optional)")
         
         c3, c4, c5, c6 = st.columns(4)
         specs = c3.text_input("SPECS")
         equipment = c4.text_input("Equipment")
         qty = c5.number_input("QUANTITY", min_value=0.0, format="%g")
-        u_price = c6.number_input("PER UNIT PRICE", min_value=0.0, format="%g")
+        u_price = c6.number_input("Unit Price", min_value=0.0, format="%g")
         
         c7, c8 = st.columns(2)
-        cost = c7.number_input("Actual Cost", min_value=0.0, format="%g")
+        unit_actual_cost = c7.number_input("Per Unit Actual Cost", min_value=0.0, format="%g")
         paid = c8.number_input("Payment sent by Client", min_value=0.0, format="%g")
         
         if st.form_submit_button("Log Deal"):
             inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             total = qty * u_price
-            remaining = total - paid
+            actual_cost = qty * unit_actual_cost # Formula: Qty * Per Unit Cost
+            remaining = actual_cost - paid       # Formula: Actual Cost - Paid
             status = "Paid" if remaining <= 0 else "Pending"
             
             conn = sqlite3.connect('enterprise.db')
+            # Order: Date, Inv No, Client, Equip, Specs, Unit Price, Total, Per Unit Cost, Actual Cost, Paid, Remaining, Team Member, Status
             conn.execute("""INSERT INTO business_deals 
-                         (date, client, invoice_no, specs, equipment, quantity, unit_price, total, cost, paid, remaining, type, status, team_member) 
-                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                         (datetime.now().strftime("%Y-%m-%d"), client, inv_no, specs, equipment, qty, u_price, total, cost, paid, remaining, "Invoice", status, team_member))
+                          (date, invoice_no, client, equipment, specs, unit_price, total, cost, paid, remaining, team_member, status, quantity) 
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         (datetime.now().strftime("%Y-%m-%d"), inv_no, client, equipment, specs, u_price, total, unit_actual_cost, actual_cost, paid, remaining, team_member, status, qty))
             conn.commit()
             st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
             conn.close()
@@ -76,19 +78,27 @@ with tab2:
 
     st.subheader("📋 Recent Deals (Edit Remaining to 0 to Pay)")
 
+    # Columns display order
+    cols_order = ['date', 'invoice_no', 'client', 'equipment', 'specs', 'unit_price', 'total', 'cost', 'paid', 'remaining', 'team_member', 'status']
+    
+    # Data Editor
     edited_df = st.data_editor(
-        st.session_state.business_df, 
+        st.session_state.business_df[cols_order], 
         use_container_width=True, 
         hide_index=True,
         key="data_editor_main"
     )
 
-    if not edited_df.equals(st.session_state.business_df):
+    if not edited_df.equals(st.session_state.business_df[cols_order]):
+        # Recalculate logic for whole numbers
+        edited_df["remaining"] = edited_df["total"] - edited_df["paid"]
         edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
-        st.session_state.business_df = edited_df
+        
+        # Save updated dataframe
+        st.session_state.business_df.update(edited_df)
         
         conn = sqlite3.connect('enterprise.db')
-        edited_df.to_sql('business_deals', conn, if_exists='replace', index=False)
+        st.session_state.business_df.to_sql('business_deals', conn, if_exists='replace', index=False)
         conn.close()
         st.rerun()
 
@@ -96,12 +106,13 @@ with tab2:
         color = '#ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
         return f'background-color: {color}'
 
+    # Final Display with formatting
     st.dataframe(
-        st.session_state.business_df.style.map(highlight_remaining, subset=['remaining']),
+        st.session_state.business_df[cols_order].style.format({
+            "total": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", "cost": "{:.0f}", "unit_price": "{:.0f}"
+        }).map(highlight_remaining, subset=['remaining']),
         use_container_width=True
-    )
-
-# --- TAB 3 & 4 remain functional ---
+    )# --- TAB 3 & 4 remain functional ---
 with tab3:
     st.title("💳 Financial Sheets")
     df = st.session_state.business_df
