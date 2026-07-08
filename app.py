@@ -77,9 +77,12 @@ st.set_page_config(page_title="Hameez Enterprise Hub", layout="wide")
 if 'business_df' not in st.session_state:
     conn = sqlite3.connect('enterprise.db')
     st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn); conn.close()
-    st.session_state.business_df['id'] = range(1, len(st.session_state.business_df) + 1) # Force 1-based IDs
+    st.session_state.business_df['id'] = range(1, len(st.session_state.business_df) + 1)
 
-with tab2 := st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit Sheets", "📊 Analytics"])[1]:
+tabs = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit Sheets", "📊 Analytics"])
+tab1, tab2, tab3, tab4 = tabs
+
+with tab2:
     st.title("➕ Register & Manage Medical Deal")
     with st.form("biz_form", clear_on_submit=True):
         c1, c2 = st.columns(2); client = c1.text_input("Client Name/Hospital"); team_member = c2.text_input("Team Member (Optional)")
@@ -95,7 +98,10 @@ with tab2 := st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/D
             st.session_state.business_df['id'] = range(1, len(st.session_state.business_df) + 1); st.rerun()
 
     st.subheader("📋 Records"); st.dataframe(st.session_state.business_df, use_container_width=True, hide_index=True)
+    
+    st.divider(); st.subheader("🖨️ Generate Invoice PDF")
+    selected_id = st.selectbox("Select ID to Download:", st.session_state.business_df['id'].tolist())
     if st.button("Generate & Download"):
-        row = st.session_state.business_df.iloc[0] # Select current or use selectbox
+        row = st.session_state.business_df[st.session_state.business_df['id'] == selected_id].iloc[0]
         path = generate_pdf(row)
-        with open(path, "rb") as f: st.download_button("✅ Download PDF", f, file_name=path)
+        with open(path, "rb") as f: st.download_button("✅ Download PDF Now", f, file_name=path)
