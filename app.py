@@ -98,6 +98,15 @@ def generate_pdf(row):
     pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C", True)
     
     file_path = f"Invoice_{row['invoice_no']}.pdf"
+    # ... (rest of your existing code)
+
+    # Adding the Stamp
+    # x=150, y=200 are the coordinates, 40 is the width of the stamp in mm
+    pdf.image('stamp.png', x=150, y=200, w=40) 
+    
+    file_path = f"Invoice_{row['invoice_no']}.pdf"
+    pdf.output(file_path)
+    return file_path
     pdf.output(file_path)
     return file_path# --- APP SETUP ---
 def init_db():
