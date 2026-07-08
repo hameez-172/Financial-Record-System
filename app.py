@@ -105,14 +105,7 @@ with tab2:
     )
     
     st.dataframe(st_styled, use_container_width=True, hide_index=True)
-    # 4. Display Table: Saare columns ke saath
-    # Hum yahan style apply kar rahe hain
-    st_styled = st.session_state.business_df.style.map(
-        highlight_remaining, subset=['remaining']
-    )
-    
-    st.dataframe(st_styled, use_container_width=True, hide_index=True)
-   
+      
 # Add a newline here before starting the next tab
 with tab3:
     st.title("💳 Financial Sheets")
