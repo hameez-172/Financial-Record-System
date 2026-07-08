@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import sqlite3
 from datetime import datetime
+# FPDF class aur generate_pdf function yahan oopar hona chahiye!
 
 # --- DATABASE SETUP ---
 def init_db():
@@ -10,7 +11,7 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS home_finance (id INTEGER PRIMARY KEY, recipient TEXT, amount REAL)''')
     c.execute('''CREATE TABLE IF NOT EXISTS business_deals 
-                 (id INTEGER PRIMARY KEY, date TEXT, invoice_no TEXT, client TEXT, equipment TEXT, specs TEXT, 
+                  (id INTEGER PRIMARY KEY, date TEXT, invoice_no TEXT, client TEXT, equipment TEXT, specs TEXT, 
                   unit_price REAL, quantity REAL, close_deal REAL, unit_actual_cost REAL, actual_cost REAL, 
                   paid REAL, remaining REAL, profit REAL, team_member TEXT, status TEXT)''')
     conn.commit()
@@ -63,11 +64,8 @@ with tab2:
             conn.close()
             st.rerun()
 
-    # 📋 Recent Deals section
-    # 📋 Recent Deals section
     st.subheader("📋 Recent Deals")
 
-    # 1. Editor
     editor_result = st.data_editor(
         st.session_state.business_df, 
         use_container_width=True, 
@@ -75,7 +73,6 @@ with tab2:
         key="data_editor_main"
     )
 
-    # 2. Logic: Sirf 'remaining' edit hone par update kare
     if "data_editor_main" in st.session_state and st.session_state["data_editor_main"]["edited_rows"]:
         edited_rows = st.session_state["data_editor_main"]["edited_rows"]
         if any('remaining' in row for row in edited_rows.values()):
@@ -87,41 +84,22 @@ with tab2:
             st.session_state.business_df = edited_df
             st.rerun()
     
-    # 3. Highlight Function
     def highlight_remaining(val):
         return 'background-color: #ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
 
-    # 4. Display Table: Column Config ke sath (Table length change nahi hogi)
     st.subheader("📋 Records")
-    
-    # Hum ek copy banayenge jisme download column hoga
     df_display = st.session_state.business_df.copy()
-    df_display['Download'] = "📥" # Download icon
+    df_display['Download'] = "📥"
     
-    # Column configuration
-    st.dataframe(
-        df_display,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Download": st.column_config.Column(
-                "PDF",
-                help="Download Invoice",
-                width="small",
-            ),
-        },
-    )
+    st.dataframe(df_display, use_container_width=True, hide_index=True)
     
-    # Ab yahan logic lagayenge ke icon click hone par kya ho
-    # Streamlit ka st.dataframe abhi direct button click catch nahi karta, 
-    # isliye hum table ke neeche "Select Invoice to Print" ka dropdown denge
     st.divider()
     selected_inv = st.selectbox("Select Invoice to Download PDF:", st.session_state.business_df['invoice_no'].tolist())
     
     if st.button("Generate & Download PDF"):
         row = st.session_state.business_df[st.session_state.business_df['invoice_no'] == selected_inv].iloc[0]
-        # Yahan apna generate_pdf(row) function call karein
-        file_path = generate_pdf(row) # Aapka PDF wala function
+        # Yahan aapka function call hai
+        file_path = generate_pdf(row) 
         
         with open(file_path, "rb") as f:
             st.download_button(
@@ -129,10 +107,13 @@ with tab2:
                 data=f,
                 file_name=file_path,
                 mime="application/pdf"
-            )with tab3:
+            )
+
+with tab3:
     st.title("💳 Financial Sheets")
     if not st.session_state.business_df.empty:
         st.dataframe(st.session_state.business_df, use_container_width=True)
+
 with tab4:
     st.title("📊 Performance Insights")
     if not st.session_state.business_df.empty:
