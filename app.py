@@ -25,30 +25,44 @@ class InvoicePDF(FPDF):
 def generate_pdf(row):
     pdf = InvoicePDF()
     pdf.add_page()
-    # Header Details
+    
+    # Invoice Header Details
     pdf.set_font("Arial", "", 10)
-    pdf.set_xy(15, 45); pdf.cell(0, 5, f"Invoice No: {row['invoice_no']}")
+    pdf.set_xy(15, 45); pdf.cell(0, 5, f"No. {row['invoice_no']}")
     pdf.set_xy(160, 45); pdf.cell(0, 5, f"Date: {row['date']}")
     pdf.set_xy(15, 58); pdf.set_font("Arial", "B", 12); pdf.cell(0, 6, f"To: {row['client']}")
     
-    # Product Table
-    pdf.set_xy(25, 85); pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
-    pdf.cell(15, 8, "SR #", 1, 0, "C", True); pdf.cell(80, 8, "EQUIPMENT", 1, 0, "C", True)
-    pdf.cell(20, 8, "QTY", 1, 0, "C", True); pdf.cell(30, 8, "PRICE", 1, 0, "C", True)
-    pdf.cell(30, 8, "TOTAL", 1, 1, "C", True)
-    
+    # Title
+    pdf.set_xy(0, 68); pdf.set_font("Arial", "B", 14); pdf.cell(210, 8, "INVOICE", align="C")
+
+    # Table Header (SPECS ke sath)
+    y = 85
+    pdf.set_xy(25, y)
+    pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
+    pdf.cell(15, 8, "SR #", 1, 0, "C", True)
+    pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
+    pdf.cell(40, 8, "SPECS", 1, 0, "C", True) # Yahan SPECS aa gaya
+    pdf.cell(15, 8, "QTY", 1, 0, "C", True)
+    pdf.cell(25, 8, "PRICE", 1, 0, "C", True)
+    pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
+
+    # Table Data Row
     pdf.set_font("Arial", "", 9); pdf.set_x(25)
-    pdf.cell(15, 8, "1", 1, 0, "C"); pdf.cell(80, 8, str(row['equipment']), 1)
-    pdf.cell(20, 8, str(row['quantity']), 1, 0, "C"); pdf.cell(30, 8, f"{row['unit_price']:.0f}", 1, 0, "C")
-    pdf.cell(30, 8, f"{row['close_deal']:.0f}", 1, 1, "C")
-    
-    # Stamp
-    if os.path.exists("stamp.png"): pdf.image("stamp.png", x=140, y=215, w=45)
+    pdf.cell(15, 8, "1", 1, 0, "C")
+    pdf.cell(45, 8, str(row['equipment']), 1)
+    pdf.cell(40, 8, str(row['specs']), 1) # Yahan database ka specs column
+    pdf.cell(15, 8, str(row['quantity']), 1, 0, "C")
+    pdf.cell(25, 8, f"{row['unit_price']:.0f}", 1, 0, "C")
+    pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C")
+
+    # Grand Total
+    pdf.set_x(125); pdf.set_font("Arial", "B", 10)
+    pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
+    pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C", True)
     
     file_path = f"Invoice_{row['invoice_no']}.pdf"
     pdf.output(file_path)
     return file_path
-
 # --- APP SETUP ---
 def init_db():
     conn = sqlite3.connect('enterprise.db')
