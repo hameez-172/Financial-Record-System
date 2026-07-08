@@ -64,43 +64,41 @@ with tab2:
             st.rerun()
 
     # 📋 Recent Deals section
-    # 📋 Recent Deals section
-    # 📋 Recent Deals section
     st.subheader("📋 Recent Deals (Edit Remaining to 0 to Pay)")
-    
-    cols_order = ['date', 'invoice_no', 'client', 'equipment', 'specs', 'unit_price', 'quantity', 'close_deal', 'unit_actual_cost', 'actual_cost', 'paid', 'remaining', 'profit', 'team_member', 'status']
-    
-    # 1. Editor: Session state ko use karein
+
+    # 1. Editor: User yahan change karega
     edited_df = st.data_editor(
-        st.session_state.business_df[cols_order], 
+        st.session_state.business_df, 
         use_container_width=True, 
         hide_index=True,
         key="data_editor_main"
     )
 
-    # 2. Logic: Agar edit hua to process karein
-    if not edited_df.equals(st.session_state.business_df[cols_order]):
-        # Calculations (Force integer type)
-        edited_df["remaining"] = (edited_df["close_deal"] - edited_df["paid"]).astype(float)
-        edited_df["profit"] = (edited_df["close_deal"] - edited_df["actual_cost"]).astype(float)
+    # 2. Logic: Sirf tab chale jab user ne kuch change kiya ho
+    if not edited_df.equals(st.session_state.business_df):
+        # Yahan recalculate karein taake status automatic update ho
+        # Note: 'remaining' aur 'status' column names DB ke columns se match karein
+        edited_df["remaining"] = (edited_df["close_deal"] - edited_df["paid"])
         edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
         
-        # Session state aur Database dono update karein
-        st.session_state.business_df = edited_df.copy()
-        
+        # Database update
         conn = sqlite3.connect('enterprise.db')
-        # Pura data overwrite karein taake columns match rahen
         edited_df.to_sql('business_deals', conn, if_exists='replace', index=False)
         conn.close()
-        st.rerun() # Page refresh hoga, styling apply hogi
+        
+        # Session state update aur Rerun
+        st.session_state.business_df = edited_df
+        st.rerun()
 
     # 3. Highlight Function
     def highlight_remaining(val):
-        # Agar value 0 ya negative hai to koi color nahi, warna red
-        if isinstance(val, (int, float)) and val > 0:
-            return 'background-color: #ff4b4b'
-        return ''
+        # Agar value 0 se badi hai toh red, warna default
+        return 'background-color: #ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
 
+    # 4. Display Table: Sirf styling ke liye
+    # Yahan subset mein 'remaining' (lowercase) use karein agar DB mein wahi hai
+    st_styled = st.session_state.business_df.style.map(highlight_remaining, subset=['remaining'])
+    st.dataframe(st_styled, use_container_width=True, hide_index=True)
     # 4. Display Table: Style object ko yahan define karein
     st_styled = st.session_state.business_df[cols_order].style.format({
         "close_deal": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", "actual_cost": "{:.0f}", 
