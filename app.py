@@ -64,9 +64,9 @@ with tab2:
             st.rerun()
 
     # 📋 Recent Deals section
-    st.subheader("📋 Recent Deals (Edit Remaining to 0 to Pay)")
+    st.subheader("📋 Recent Deals")
 
-    # 1. Editor: User yahan change karega
+    # 1. Editor: Yahan user edit karega
     edited_df = st.data_editor(
         st.session_state.business_df, 
         use_container_width=True, 
@@ -75,10 +75,11 @@ with tab2:
     )
 
     # 2. Logic: Sirf tab chale jab user ne kuch change kiya ho
+    # Ye part aapki requirement ke mutabiq logic ko intact rakhega
     if not edited_df.equals(st.session_state.business_df):
-        # Yahan recalculate karein taake status automatic update ho
-        # Note: 'remaining' aur 'status' column names DB ke columns se match karein
+        # Remaining update
         edited_df["remaining"] = (edited_df["close_deal"] - edited_df["paid"])
+        # Status update (0 ya us se kam par "Paid")
         edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
         
         # Database update
@@ -90,23 +91,19 @@ with tab2:
         st.session_state.business_df = edited_df
         st.rerun()
 
-    # 3. Highlight Function
+    # 3. Highlight Function: 0 se upar wali values ko red karega
     def highlight_remaining(val):
-        # Agar value 0 se badi hai toh red, warna default
         return 'background-color: #ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
 
-    # 4. Display Table: Sirf styling ke liye
-    # Yahan subset mein 'remaining' (lowercase) use karein agar DB mein wahi hai
-    st_styled = st.session_state.business_df.style.map(highlight_remaining, subset=['remaining'])
-    st.dataframe(st_styled, use_container_width=True, hide_index=True)
-    # 4. Display Table: Style object ko yahan define karein
-    st_styled = st.session_state.business_df[cols_order].style.format({
-        "close_deal": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", "actual_cost": "{:.0f}", 
-        "profit": "{:.0f}", "unit_price": "{:.0f}", "unit_actual_cost": "{:.0f}", "quantity": "{:.0f}"
-    }).map(highlight_remaining, subset=['remaining'])
+    # 4. Display Table: Styling apply ki gayi hai
+    # Sirf unhi columns ko dikhayen jo aap dekhna chahte hain
+    cols_to_show = ["date", "invoice_no", "client", "equipment", "close_deal", "paid", "remaining", "status"]
+    
+    st_styled = st.session_state.business_df[cols_to_show].style.map(
+        highlight_remaining, subset=['remaining']
+    )
     
     st.dataframe(st_styled, use_container_width=True)
-
 # Add a newline here before starting the next tab
 with tab3:
     st.title("💳 Financial Sheets")
