@@ -98,31 +98,35 @@ def generate_pdf(row):
     pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C", True)
     
     file_path = f"Invoice_{row['invoice_no']}.pdf"
-    # ... (rest of your existing code)
-    # --- Footer (Account Details & Regards) ---
+    # --- Footer Section Layout ---
+    # Separator line
     pdf.set_draw_color(200, 200, 200)
     pdf.line(10, 240, 200, 240)
 
-    # Left Side: Account Details
+    # 1. Regards (Left Side, Top)
     pdf.set_xy(15, 245)
+    pdf.set_font("Arial", "I", 10)
+    pdf.cell(90, 5, "Regards,", ln=1)
+    
+    pdf.set_x(15)
     pdf.set_font("Arial", "B", 10)
-    pdf.cell(0, 5, "Account Details:", ln=1)
-    pdf.set_x(15); pdf.set_font("Arial", "", 9)
+    pdf.cell(90, 5, "Badar Diagnostics & Medical Equipment, Lahore", ln=1)
+
+    # 2. Account Details (Left Side, Below Regards)
+    pdf.set_y(260) # Thoda gap diya hai 'Regards' aur 'Account' ke beech
+    pdf.set_x(15)
+    pdf.set_font("Arial", "B", 10)
+    pdf.set_text_color(0, 51, 102) # Dark Blue
+    pdf.cell(90, 5, "Account Details:", ln=1)
+    
+    pdf.set_x(15)
+    pdf.set_font("Arial", "", 9)
+    pdf.set_text_color(0, 0, 0) # Black
     pdf.multi_cell(90, 5, "Account Name: Badar Diagnostics & Medical Equipment\nBank Name: Faysal Bank\nAccount #: 0155007000005585")
 
-    # Right Side: Regards
-    right_x = 130
-    pdf.set_xy(right_x, 245)
-    pdf.set_font("Arial", "I", 10)
-    pdf.cell(60, 5, "Regards,", ln=1, align="C")
-    pdf.set_x(right_x); pdf.set_font("Arial", "B", 10)
-    pdf.cell(60, 5, "Badar Diagnostics &", ln=1, align="C")
-    pdf.set_x(right_x)
-    pdf.cell(60, 5, "Medical Equipment, Lahore", ln=1, align="C")
-
-    # Stamp
+    # 3. Stamp (Right Side)
     if os.path.exists("stamp.jpg"):
-        pdf.image("stamp.jpg", x=right_x + 15, y=265, w=35)
+        pdf.image("stamp.jpg", x=140, y=250, w=40)
     
     # PDF Save
     file_path = f"Invoice_{row['invoice_no']}.pdf"
