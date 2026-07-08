@@ -64,11 +64,12 @@ with tab2:
             st.rerun()
 
     # 📋 Recent Deals section
+    # 📋 Recent Deals section
     st.subheader("📋 Recent Deals (Edit Remaining to 0 to Pay)")
     
     cols_order = ['date', 'invoice_no', 'client', 'equipment', 'specs', 'unit_price', 'quantity', 'close_deal', 'unit_actual_cost', 'actual_cost', 'paid', 'remaining', 'profit', 'team_member', 'status']
     
-    # 1. Editor
+    # 1. Editor: Session state ko use karein
     edited_df = st.data_editor(
         st.session_state.business_df[cols_order], 
         use_container_width=True, 
@@ -76,36 +77,36 @@ with tab2:
         key="data_editor_main"
     )
 
-    # 2. Logic: Sirf tabhi run ho jab user edit kare
+    # 2. Logic: Agar edit hua to process karein
     if not edited_df.equals(st.session_state.business_df[cols_order]):
-        # Calculations perform karein
-        edited_df["remaining"] = edited_df["close_deal"] - edited_df["paid"]
-        edited_df["profit"] = edited_df["close_deal"] - edited_df["actual_cost"]
+        # Calculations (Force integer type)
+        edited_df["remaining"] = (edited_df["close_deal"] - edited_df["paid"]).astype(float)
+        edited_df["profit"] = (edited_df["close_deal"] - edited_df["actual_cost"]).astype(float)
         edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
         
-        # Session state update karein
-        st.session_state.business_df.update(edited_df)
+        # Session state aur Database dono update karein
+        st.session_state.business_df = edited_df.copy()
         
-        # Database mein save karein
         conn = sqlite3.connect('enterprise.db')
-        st.session_state.business_df.to_sql('business_deals', conn, if_exists='replace', index=False)
+        # Pura data overwrite karein taake columns match rahen
+        edited_df.to_sql('business_deals', conn, if_exists='replace', index=False)
         conn.close()
-        st.rerun() # Page refresh hoga aur coloring update ho jayegi
+        st.rerun() # Page refresh hoga, styling apply hogi
 
     # 3. Highlight Function
     def highlight_remaining(val):
-        # Agar value 0 ya negative hai to koi color nahi (unhighlighted)
-        color = '#ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
-        return f'background-color: {color}'
+        # Agar value 0 ya negative hai to koi color nahi, warna red
+        if isinstance(val, (int, float)) and val > 0:
+            return 'background-color: #ff4b4b'
+        return ''
 
-    # 4. Display Table with Styling
-    st.dataframe(
-        st.session_state.business_df[cols_order].style.format({
-            "close_deal": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", "actual_cost": "{:.0f}", 
-            "profit": "{:.0f}", "unit_price": "{:.0f}", "unit_actual_cost": "{:.0f}", "quantity": "{:.0f}"
-        }).map(highlight_remaining, subset=['remaining']),
-        use_container_width=True
-    )
+    # 4. Display Table: Style object ko yahan define karein
+    st_styled = st.session_state.business_df[cols_order].style.format({
+        "close_deal": "{:.0f}", "paid": "{:.0f}", "remaining": "{:.0f}", "actual_cost": "{:.0f}", 
+        "profit": "{:.0f}", "unit_price": "{:.0f}", "unit_actual_cost": "{:.0f}", "quantity": "{:.0f}"
+    }).map(highlight_remaining, subset=['remaining'])
+    
+    st.dataframe(st_styled, use_container_width=True)
 with tab3:
     st.title("💳 Financial Sheets")
     if not st.session_state.business_df.empty:
