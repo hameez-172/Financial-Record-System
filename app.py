@@ -8,6 +8,7 @@ import os
 # --- PDF GENERATOR CLASS (Updated for fpdf2) ---
 class InvoicePDF(FPDF):
     def header(self):
+        # Top Strips
         self.set_fill_color(0, 51, 102); self.rect(10, 8, 22, 8, "F")
         self.set_fill_color(0, 153, 224); self.rect(35, 8, 165, 8, "F")
         if os.path.exists("lo.png"): self.image("lo.png", x=10, y=18, w=25)
@@ -15,18 +16,24 @@ class InvoicePDF(FPDF):
         self.cell(0, 10, "Badar Diagnostics & Medical Equipments")
 
     def footer(self):
+        # Dark Blue Footer Background
         self.set_fill_color(0, 51, 102); self.rect(10, 260, 190, 15, "F")
+        # Light Blue Contact Line
         self.set_fill_color(0, 153, 224); self.rect(10, 275, 190, 8, "F")
+        
+        # Office Locations
         self.set_y(262); self.set_text_color(255, 255, 255); self.set_font("Arial", "", 7)
         self.multi_cell(0, 3.5, "Lahore Office: D Block Nawab Town, Lahore   |   Okara Office: Adjacent Ibn-e-Sina Lab, Opposite DHQ, Okara\nPindi Office: Commercial Market, Rawalpindi   |   Bahawalpur Office: Model Town C, Bahawalpur", align="C")
+        
+        # Contact Info
         self.set_y(276); self.set_font("Arial", "B", 8)
-        # Emojis hata diye hain kyunki wo FPDF error dete hain
-        self.cell(0, 4, "Ph: 0300-7303020, 0334-7303020     E-mail: munir.badar1@gmail.com", align="C")
+        self.cell(0, 4, "📞 0300-7303020, 0334-7303020     ✉ E-mail: munir.badar1@gmail.com", align="C")
+
 def generate_pdf(row):
     pdf = InvoicePDF()
     pdf.add_page()
     
-    # Invoice Header
+    # --- Invoice Header ---
     pdf.set_font("Arial", "B", 12); pdf.set_text_color(0, 153, 224)
     pdf.set_xy(15, 45); pdf.cell(10, 5, "No."); pdf.set_text_color(0, 0, 0)
     pdf.set_xy(25, 45); pdf.cell(40, 5, f"{row['invoice_no']}"); pdf.line(25, 50, 65, 50)
@@ -36,7 +43,7 @@ def generate_pdf(row):
     
     pdf.set_xy(15, 58); pdf.set_font("Arial", "B", 12); pdf.cell(0, 6, f"To: {row['client']}")
     
-    # Table Header
+    # --- Table ---
     y = 85; pdf.set_xy(25, y)
     pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
     headers = ["SR #", "PRODUCT", "SPECS", "QTY", "PRICE", "TOTAL"]
@@ -44,16 +51,17 @@ def generate_pdf(row):
     for i, h in enumerate(headers): pdf.cell(widths[i], 8, h, 1, 0, "C", True)
     pdf.ln()
     
-    # Data Row
     pdf.set_font("Arial", "", 9); pdf.set_x(25)
     pdf.cell(15, 8, "1", 1, 0, "C"); pdf.cell(45, 8, str(row['equipment']), 1)
     pdf.cell(40, 8, str(row['specs']), 1); pdf.cell(15, 8, str(row['quantity']), 1, 0, "C")
     pdf.cell(25, 8, f"{row['unit_price']:.0f}", 1, 0, "C"); pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C")
     
-    # Account Details & Stamp
+    # --- Left Side: Account Details ---
     pdf.set_y(150); pdf.set_font("Arial", "B", 10); pdf.cell(0, 5, "Account Details:", ln=1)
-    pdf.set_font("Arial", "", 9); pdf.multi_cell(0, 4, "Badar Diagnostics & Medical Equipment\nFaysal Bank: 0155007000005585\nLahore")
+    pdf.set_font("Arial", "", 9)
+    pdf.multi_cell(0, 4, "Badar Diagnostics & Medical Equipment\nFaysal Bank: 0155007000005585\nLahore")
     
+    # --- Right Side: Stamp & Signature ---
     if os.path.exists("stamp.png"): pdf.image("stamp.png", x=140, y=160, w=40)
     pdf.set_xy(140, 205); pdf.set_font("Arial", "B", 10); pdf.cell(40, 5, "Authorized Signatory", align="C")
     
