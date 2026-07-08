@@ -26,14 +26,30 @@ def generate_pdf(row):
     pdf = InvoicePDF()
     pdf.add_page()
     
-    # Invoice Header Details
-    pdf.set_font("Arial", "", 10)
-    pdf.set_xy(15, 45); pdf.cell(0, 5, f"No. {row['invoice_no']}")
-    pdf.set_xy(160, 45); pdf.cell(0, 5, f"Date: {row['date']}")
-    pdf.set_xy(15, 58); pdf.set_font("Arial", "B", 12); pdf.cell(0, 6, f"To: {row['client']}")
+    # Header Details (Invoice No & Date)
+    pdf.set_font("Arial", "B", 10)
+    pdf.set_text_color(0, 0, 0)
     
-    # Title
-    pdf.set_xy(0, 68); pdf.set_font("Arial", "B", 14); pdf.cell(210, 8, "INVOICE", align="C")
+    # Invoice No section
+    pdf.set_xy(15, 45)
+    pdf.cell(0, 5, f"No. {row['invoice_no']}")
+    pdf.set_draw_color(0, 153, 224) # Blue color
+    pdf.line(15, 50, 55, 50)        # Underline for Invoice No
+    
+    # Date section
+    pdf.set_xy(155, 45)
+    pdf.cell(0, 5, f"Date: {row['date']}")
+    pdf.line(155, 50, 195, 50)      # Underline for Date
+    
+    # Client Name
+    pdf.set_xy(15, 58)
+    pdf.set_font("Arial", "B", 12)
+    pdf.cell(0, 6, f"To: {row['client']}")
+    
+    # INVOICE Title
+    pdf.set_xy(0, 68)
+    pdf.set_font("Arial", "B", 14)
+    pdf.cell(210, 8, "INVOICE", align="C")
 
     # Table Header (SPECS ke sath)
     y = 85
@@ -41,7 +57,7 @@ def generate_pdf(row):
     pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
     pdf.cell(15, 8, "SR #", 1, 0, "C", True)
     pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
-    pdf.cell(40, 8, "SPECS", 1, 0, "C", True) # Yahan SPECS aa gaya
+    pdf.cell(40, 8, "SPECS", 1, 0, "C", True) 
     pdf.cell(15, 8, "QTY", 1, 0, "C", True)
     pdf.cell(25, 8, "PRICE", 1, 0, "C", True)
     pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
@@ -50,7 +66,7 @@ def generate_pdf(row):
     pdf.set_font("Arial", "", 9); pdf.set_x(25)
     pdf.cell(15, 8, "1", 1, 0, "C")
     pdf.cell(45, 8, str(row['equipment']), 1)
-    pdf.cell(40, 8, str(row['specs']), 1) # Yahan database ka specs column
+    pdf.cell(40, 8, str(row['specs']), 1) 
     pdf.cell(15, 8, str(row['quantity']), 1, 0, "C")
     pdf.cell(25, 8, f"{row['unit_price']:.0f}", 1, 0, "C")
     pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C")
@@ -62,8 +78,7 @@ def generate_pdf(row):
     
     file_path = f"Invoice_{row['invoice_no']}.pdf"
     pdf.output(file_path)
-    return file_path
-# --- APP SETUP ---
+    return file_path# --- APP SETUP ---
 def init_db():
     conn = sqlite3.connect('enterprise.db')
     c = conn.cursor()
