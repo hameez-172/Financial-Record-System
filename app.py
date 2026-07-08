@@ -113,5 +113,12 @@ with tab3:
 with tab4:
     st.title("📊 Performance Insights")
     if not st.session_state.business_df.empty:
+        # Total Revenue Metric
         st.metric("Total Revenue", f"Rs {int(st.session_state.business_df['close_deal'].sum()):,}")
-        st.plotly_chart(px.bar(st.session_state.business_df, x='invoice_no', y='close_deal', template="plotly_dark"), use_container_width=True)
+        
+        # Plotly Chart with explicit px import check
+        try:
+            fig = px.bar(st.session_state.business_df, x='invoice_no', y='close_deal', template="plotly_dark")
+            st.plotly_chart(fig, use_container_width=True)
+        except NameError:
+            st.error("Plotly is not installed or loaded correctly. Please add 'plotly' to your requirements.txt.")
