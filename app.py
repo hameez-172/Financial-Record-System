@@ -65,36 +65,46 @@ with tab2:
 
     # 📋 Recent Deals section
     # 📋 Recent Deals section
+    # 📋 Recent Deals section
     st.subheader("📋 Recent Deals")
 
     # 1. Editor
-    edited_df = st.data_editor(
+    editor_result = st.data_editor(
         st.session_state.business_df, 
         use_container_width=True, 
         hide_index=True,
         key="data_editor_main"
     )
 
-    # 2. Logic: Sirf tab chale jab user ne kuch change kiya ho
-    if not edited_df.equals(st.session_state.business_df):
-        # Remaining update
-        edited_df["remaining"] = (edited_df["close_deal"] - edited_df["paid"])
-        # Automatic Status update (Ye wo line hai jo status change karti hai)
-        edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
+    # 2. Logic: Sirf tab chale jab 'remaining' column edit ho
+    if "data_editor_main" in st.session_state and st.session_state["data_editor_main"]["edited_rows"]:
+        edited_rows = st.session_state["data_editor_main"]["edited_rows"]
         
-        # Database update
-        conn = sqlite3.connect('enterprise.db')
-        edited_df.to_sql('business_deals', conn, if_exists='replace', index=False)
-        conn.close()
-        
-        st.session_state.business_df = edited_df
-        st.rerun()
-
-    # 3. Highlight Function
+        # Check karein ke kya 'remaining' column edit hua hai
+        if any('remaining' in row for row in edited_rows.values()):
+            edited_df = editor_result.copy()
+            
+            # Status update (Remaining 0 ya us se kam = Paid)
+            edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
+            
+            # Database update
+            conn = sqlite3.connect('enterprise.db')
+            edited_df.to_sql('business_deals', conn, if_exists='replace', index=False)
+            conn.close()
+            
+            st.session_state.business_df = edited_df
+            st.rerun()
+    
+    # 3. Highlight Function (Sirf remaining ke liye)
     def highlight_remaining(val):
-        # Ye line highlight control karti hai
         return 'background-color: #ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
 
+    # 4. Display Table: Style apply karein
+    st_styled = editor_result.style.map(
+        highlight_remaining, subset=['remaining']
+    )
+    
+    st.dataframe(st_styled, use_container_width=True, hide_index=True)
     # 4. Display Table: Saare columns ke saath
     # Hum yahan style apply kar rahe hain
     st_styled = st.session_state.business_df.style.map(
