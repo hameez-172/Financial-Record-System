@@ -12,8 +12,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS business_deals 
                  (id INTEGER PRIMARY KEY, date TEXT, client TEXT, invoice_no TEXT, 
                   specs TEXT, equipment TEXT, quantity REAL, unit_price REAL, total REAL, 
-                  cost REAL, paid REAL, remaining REAL, type TEXT, status TEXT, team_member TEXT)''')
-    conn.commit()
+                  cost REAL, paid REAL, remaining REAL, profit REAL, type TEXT, status TEXT, team_member TEXT)''')    conn.commit()
     conn.close()
 
 init_db()
