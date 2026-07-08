@@ -65,6 +65,7 @@ with tab2:
 
     # 📋 Recent Deals section
     # 📋 Recent Deals section
+    # 📋 Recent Deals section
     st.subheader("📋 Recent Deals (Edit Remaining to 0 to Pay)")
     
     cols_order = ['date', 'invoice_no', 'client', 'equipment', 'specs', 'unit_price', 'quantity', 'close_deal', 'unit_actual_cost', 'actual_cost', 'paid', 'remaining', 'profit', 'team_member', 'status']
@@ -106,8 +107,7 @@ with tab2:
         "profit": "{:.0f}", "unit_price": "{:.0f}", "unit_actual_cost": "{:.0f}", "quantity": "{:.0f}"
     }).map(highlight_remaining, subset=['remaining'])
     
-    st.dataframe(st_styled, use_container_width=True)
-with tab3:
+    st.dataframe(st_styled, use_container_width=True)with tab3:
     st.title("💳 Financial Sheets")
     if not st.session_state.business_df.empty:
         st.dataframe(st.session_state.business_df, use_container_width=True)
