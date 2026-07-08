@@ -54,7 +54,6 @@ if 'business_df' not in st.session_state:
 tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit Sheets", "📊 Analytics"])
 
 with tab2:
-    with tab2:
     st.title("➕ Register & Manage Medical Deal")
     
     with st.form("biz_form", clear_on_submit=True):
@@ -87,29 +86,21 @@ with tab2:
             edited_df.to_sql('business_deals', conn, if_exists='replace', index=False); conn.close(); st.session_state.business_df = edited_df; st.rerun()
 
     st.subheader("📋 Records")
-    # Table mein loop khatam kar diya taake app refresh na ho
     st.dataframe(st.session_state.business_df, use_container_width=True, hide_index=True)
     
     st.divider()
     st.subheader("🖨️ Generate Invoice PDF")
-    
-    # User yahan invoice number search karega ya select karega
     col_a, col_b = st.columns([0.7, 0.3])
     with col_a:
         selected_inv = st.selectbox("Select Invoice Number:", st.session_state.business_df['invoice_no'].tolist())
-    
     with col_b:
         st.write("###") 
         if st.button("Generate & Download"):
             row = st.session_state.business_df[st.session_state.business_df['invoice_no'] == selected_inv].iloc[0]
             path = generate_pdf(row)
             with open(path, "rb") as f:
-                st.download_button(
-                    label="✅ Download PDF Now",
-                    data=f,
-                    file_name=path,
-                    mime="application/pdf"
-                )
+                st.download_button("✅ Download PDF Now", f, file_name=path, mime="application/pdf")
+
 with tab3:
     st.title("💳 Financial Sheets")
     st.dataframe(st.session_state.business_df, use_container_width=True)
