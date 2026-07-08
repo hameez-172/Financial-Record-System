@@ -56,7 +56,6 @@ tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "�
 with tab2:
     st.title("➕ Register & Manage Medical Deal")
     
-    # ... (Aapka form yahan waisa hi rahega) ...
     with st.form("biz_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
         client = c1.text_input("Client Name/Hospital")
@@ -86,36 +85,24 @@ with tab2:
             conn = sqlite3.connect('enterprise.db')
             edited_df.to_sql('business_deals', conn, if_exists='replace', index=False); conn.close(); st.session_state.business_df = edited_df; st.rerun()
 
-    # --- DOWNLOAD PDF LOGIC INSIDE TABLE ---
-    # --- DOWNLOAD PDF LOGIC INSIDE TABLE ---
     st.subheader("📋 Records")
-    
-    # 1. Sabhi invoices ki PDF pehle generate karke unka path store karein
     df_display = st.session_state.business_df.copy()
-    pdf_paths = []
+    pdf_paths = [generate_pdf(row) for _, row in df_display.iterrows()]
+    df_display['Download_Link'] = pdf_paths 
     
-    for _, row in df_display.iterrows():
-        path = generate_pdf(row) # PDF generate ho rahi hai
-        pdf_paths.append(path)
-    
-    df_display['Download_Link'] = pdf_paths # Column mein path dal diya
-    
-    # 2. Table display karein jisme Download button ho
     st.dataframe(
         df_display,
         use_container_width=True,
         hide_index=True,
         column_config={
-            "Download_Link": st.column_config.LinkColumn(
-                "PDF",
-                help="Click to download",
-                display_text="📥 Download",
-            ),
+            "Download_Link": st.column_config.LinkColumn("PDF", help="Click to download", display_text="📥 Download"),
         },
     )
-    with tab3:
+
+with tab3:
     st.title("💳 Financial Sheets")
     st.dataframe(st.session_state.business_df, use_container_width=True)
+
 with tab4:
     st.title("📊 Performance Insights")
     if not st.session_state.business_df.empty:
