@@ -85,10 +85,9 @@ with tab2:
             conn = sqlite3.connect('enterprise.db')
             edited_df.to_sql('business_deals', conn, if_exists='replace', index=False); conn.close(); st.session_state.business_df = edited_df; st.rerun()
 
-st.subheader("📋 Records")
+    st.subheader("📋 Records")
     # 'id' ko string mein convert kar rahe hain taake selectbox mein asani se dikhe
     st.session_state.business_df['id_str'] = st.session_state.business_df['id'].astype(str)
-    
     st.dataframe(st.session_state.business_df.drop(columns=['id_str']), use_container_width=True, hide_index=True)
     
     st.divider()
@@ -96,14 +95,12 @@ st.subheader("📋 Records")
     
     col_a, col_b = st.columns([0.7, 0.3])
     with col_a:
-        # ID list generate ki
         id_list = st.session_state.business_df['id'].tolist()
         selected_id = st.selectbox("Select Deal ID to Download:", id_list)
     
     with col_b:
         st.write("###") 
         if st.button("Generate & Download"):
-            # ID ke zariye row select ho rahi hai
             row = st.session_state.business_df[st.session_state.business_df['id'] == selected_id].iloc[0]
             path = generate_pdf(row)
             with open(path, "rb") as f:
@@ -113,6 +110,7 @@ st.subheader("📋 Records")
                     file_name=path,
                     mime="application/pdf"
                 )
+
 with tab3:
     st.title("💳 Financial Sheets")
     st.dataframe(st.session_state.business_df, use_container_width=True)
