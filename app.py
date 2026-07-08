@@ -87,32 +87,32 @@ with tab2:
             edited_df.to_sql('business_deals', conn, if_exists='replace', index=False); conn.close(); st.session_state.business_df = edited_df; st.rerun()
 
     # --- DOWNLOAD PDF LOGIC INSIDE TABLE ---
+    # --- DOWNLOAD PDF LOGIC INSIDE TABLE ---
     st.subheader("📋 Records")
     
-    # PDF files generate karke unka path store kar rahe hain
+    # 1. Sabhi invoices ki PDF pehle generate karke unka path store karein
     df_display = st.session_state.business_df.copy()
+    pdf_paths = []
     
-    # User jab PDF icon pe click karega
+    for _, row in df_display.iterrows():
+        path = generate_pdf(row) # PDF generate ho rahi hai
+        pdf_paths.append(path)
+    
+    df_display['Download_Link'] = pdf_paths # Column mein path dal diya
+    
+    # 2. Table display karein jisme Download button ho
     st.dataframe(
         df_display,
         use_container_width=True,
         hide_index=True,
         column_config={
-            "invoice_no": st.column_config.Column("Invoice No"),
-            "Download": st.column_config.LinkColumn("PDF", display_text="📥 Download")
-        }
-    )
-    
-    # PDF generate karne ka button (jo aapne pehle banaya tha)
-    selected_inv = st.selectbox("Select Invoice to Download:", st.session_state.business_df['invoice_no'].tolist())
-    if st.button("Generate & Download"):
-        row = st.session_state.business_df[st.session_state.business_df['invoice_no'] == selected_inv].iloc[0]
-        path = generate_pdf(row)
-        with open(path, "rb") as f:
-            st.download_button("Click to Download", f, file_name=path)
-
-# ... (baqi tab3 aur tab4 waisa hi rahega) ...
-with tab3:
+            "Download_Link": st.column_config.LinkColumn(
+                "PDF",
+                help="Click to download",
+                display_text="📥 Download",
+            ),
+        },
+    )with tab3:
     st.title("💳 Financial Sheets")
     st.dataframe(st.session_state.business_df, use_container_width=True)
 with tab4:
