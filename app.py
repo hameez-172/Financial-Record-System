@@ -66,6 +66,7 @@ with tab2:
     # 📋 Recent Deals section
     # 📋 Recent Deals section
     # 📋 Recent Deals section
+   # 📋 Recent Deals section
     st.subheader("📋 Recent Deals")
 
     # 1. Editor
@@ -80,11 +81,10 @@ with tab2:
     if "data_editor_main" in st.session_state and st.session_state["data_editor_main"]["edited_rows"]:
         edited_rows = st.session_state["data_editor_main"]["edited_rows"]
         
-        # Check karein ke kya 'remaining' column edit hua hai
         if any('remaining' in row for row in edited_rows.values()):
             edited_df = editor_result.copy()
             
-            # Status update (Remaining 0 ya us se kam = Paid)
+            # Status update
             edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
             
             # Database update
@@ -95,10 +95,23 @@ with tab2:
             st.session_state.business_df = edited_df
             st.rerun()
     
-    # 3. Highlight Function (Sirf remaining ke liye)
+    # 3. Highlight Function
     def highlight_remaining(val):
         return 'background-color: #ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
 
+    # 4. Display Table: Formatting ke saath (Yahan se 8000.00000 khatam hoga)
+    st_styled = editor_result.style.format({
+        "close_deal": "{:.0f}", 
+        "paid": "{:.0f}", 
+        "remaining": "{:.0f}", 
+        "unit_price": "{:.0f}", 
+        "unit_actual_cost": "{:.0f}", 
+        "actual_cost": "{:.0f}", 
+        "profit": "{:.0f}", 
+        "quantity": "{:.0f}"
+    }).map(highlight_remaining, subset=['remaining'])
+    
+    st.dataframe(st_styled, use_container_width=True, hide_index=True)
     # 4. Display Table: Style apply karein
     st_styled = editor_result.style.map(
         highlight_remaining, subset=['remaining']
