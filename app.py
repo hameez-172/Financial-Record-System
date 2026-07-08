@@ -99,34 +99,37 @@ def generate_pdf(row):
     
     file_path = f"Invoice_{row['invoice_no']}.pdf"
     # ... (rest of your existing code)
-    # --- Footer Layout Setup ---
-    # Hum ek line draw kar rahe hain footer ke upar separation ke liye
+    # --- Footer (Account Details & Regards) ---
     pdf.set_draw_color(200, 200, 200)
     pdf.line(10, 240, 200, 240)
 
-    # --- LEFT SIDE: Account Details ---
+    # Left Side: Account Details
     pdf.set_xy(15, 245)
     pdf.set_font("Arial", "B", 10)
-    pdf.set_text_color(0, 51, 102) # Dark Blue
     pdf.cell(0, 5, "Account Details:", ln=1)
-    
-    pdf.set_x(15)
-    pdf.set_font("Arial", "", 9)
-    pdf.set_text_color(0, 0, 0)
+    pdf.set_x(15); pdf.set_font("Arial", "", 9)
     pdf.multi_cell(90, 5, "Account Name: Badar Diagnostics & Medical Equipment\nBank Name: Faysal Bank\nAccount #: 0155007000005585")
 
-    # --- RIGHT SIDE: Regards & Stamp ---
-    # Position adjusted to the right
+    # Right Side: Regards
     right_x = 130
     pdf.set_xy(right_x, 245)
     pdf.set_font("Arial", "I", 10)
     pdf.cell(60, 5, "Regards,", ln=1, align="C")
-    
-    pdf.set_x(right_x)
-    pdf.set_font("Arial", "B", 10)
+    pdf.set_x(right_x); pdf.set_font("Arial", "B", 10)
     pdf.cell(60, 5, "Badar Diagnostics &", ln=1, align="C")
     pdf.set_x(right_x)
-    pdf.cell(60, 5, "Medical Equipment, Lahore", ln=1, align="C")# --- APP SETUP ---
+    pdf.cell(60, 5, "Medical Equipment, Lahore", ln=1, align="C")
+
+    # Stamp
+    if os.path.exists("stamp.jpg"):
+        pdf.image("stamp.jpg", x=right_x + 15, y=265, w=35)
+    
+    # PDF Save
+    file_path = f"Invoice_{row['invoice_no']}.pdf"
+    pdf.output(file_path)
+    
+    # YE SABSE ZAROORI HAI: Function ko file_path wapas bhejna chahiye
+    return file_path# --- APP SETUP ---
 def init_db():
     conn = sqlite3.connect('enterprise.db')
     c = conn.cursor()
