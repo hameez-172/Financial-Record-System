@@ -112,7 +112,8 @@ with tab2:
                 display_text="📥 Download",
             ),
         },
-    )with tab3:
+    )
+    with tab3:
     st.title("💳 Financial Sheets")
     st.dataframe(st.session_state.business_df, use_container_width=True)
 with tab4:
