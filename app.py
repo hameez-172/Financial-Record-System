@@ -68,7 +68,7 @@ with tab2:
             conn = sqlite3.connect('enterprise.db')
             # Table structure ke mutabiq columns ka order set kiya hai
             conn.execute("""INSERT INTO business_deals 
-                          (date, client, invoice_no, specs, equipment, quantity, unit_price, total, cost, paid, remaining, type, status, team_member) 
+                          (date, client, invoice_no, specs, equipment, quantity, unit_price,Per Unit Actual Cost, total,actual_cost, cost, paid, remaining, type, status, team_member) 
                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                          (datetime.now().strftime("%Y-%m-%d"), client, inv_no, specs, equipment, qty, u_price, total, actual_cost, paid, remaining, "Invoice", status, team_member))
             conn.commit()
