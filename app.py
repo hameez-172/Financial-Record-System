@@ -28,7 +28,7 @@ if 'business_df' not in st.session_state:
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit Sheets", "📊 Analytics"])
 
-# --- TAB 1: Home Finance ---
+# --- TAB 1 ---
 with tab1:
     st.title("🏡 Home Finance Tracker")
     conn = sqlite3.connect('enterprise.db')
@@ -54,13 +54,21 @@ with tab2:
         qty = c5.number_input("QUANTITY", min_value=0.0, format="%g")
         u_price = c6.number_input("PER UNIT PRICE", min_value=0.0, format="%g")
         
+        c7, c8 = st.columns(2)
+        cost = c7.number_input("Actual Cost", min_value=0.0, format="%g")
+        paid = c8.number_input("Payment sent by Client", min_value=0.0, format="%g")
+        
         if st.form_submit_button("Log Deal"):
             inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             total = qty * u_price
+            remaining = total - paid
+            status = "Paid" if remaining <= 0 else "Pending"
             
             conn = sqlite3.connect('enterprise.db')
-            conn.execute("INSERT INTO business_deals (date, client, invoice_no, specs, equipment, quantity, unit_price, total, cost, paid, remaining, type, status, team_member) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                         (datetime.now().strftime("%Y-%m-%d"), client, inv_no, specs, equipment, qty, u_price, total, 0, total, "Invoice", "Pending", team_member))
+            conn.execute("""INSERT INTO business_deals 
+                         (date, client, invoice_no, specs, equipment, quantity, unit_price, total, cost, paid, remaining, type, status, team_member) 
+                         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         (datetime.now().strftime("%Y-%m-%d"), client, inv_no, specs, equipment, qty, u_price, total, cost, paid, remaining, "Invoice", status, team_member))
             conn.commit()
             st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
             conn.close()
@@ -68,7 +76,6 @@ with tab2:
 
     st.subheader("📋 Recent Deals (Edit Remaining to 0 to Pay)")
 
-    # Data Editor
     edited_df = st.data_editor(
         st.session_state.business_df, 
         use_container_width=True, 
@@ -76,7 +83,6 @@ with tab2:
         key="data_editor_main"
     )
 
-    # Logic: Status update
     if not edited_df.equals(st.session_state.business_df):
         edited_df["status"] = edited_df["remaining"].apply(lambda x: "Paid" if x <= 0 else "Pending")
         st.session_state.business_df = edited_df
@@ -86,7 +92,6 @@ with tab2:
         conn.close()
         st.rerun()
 
-    # Highlight Logic
     def highlight_remaining(val):
         color = '#ff4b4b' if isinstance(val, (int, float)) and val > 0 else ''
         return f'background-color: {color}'
@@ -96,17 +101,16 @@ with tab2:
         use_container_width=True
     )
 
-# --- TAB 3: Sheets ---
+# --- TAB 3 & 4 remain functional ---
 with tab3:
     st.title("💳 Financial Sheets")
     df = st.session_state.business_df
     if not df.empty:
         st.subheader("Credit Sheet (Receivables)")
-        st.dataframe(df[['client', 'invoice_no', 'equipment', 'team_member', 'total', 'paid', 'remaining', 'status']], use_container_width=True)
+        st.dataframe(df[['client', 'invoice_no', 'equipment', 'total', 'paid', 'remaining', 'status']], use_container_width=True)
         st.subheader("Debit Sheet (Liabilities)")
         st.dataframe(df[['client', 'invoice_no', 'equipment', 'cost', 'paid']], use_container_width=True)
 
-# --- TAB 4: Analytics ---
 with tab4:
     st.title("📊 Performance Insights")
     df_biz = st.session_state.business_df
