@@ -48,8 +48,7 @@ def generate_pdf(row, doc_type="INVOICE"):
     pdf.add_page()
     blue_color = (0, 153, 224)
     
-    # --- Header Info (Invoice No/Date/Client) ---
-    # Using a common function for label/value pairs helps alignment
+    # --- Header Info ---
     def draw_info_line(y, label, value, color=blue_color, bold_label=True):
         pdf.set_xy(15, y)
         pdf.set_font("Arial", "B" if bold_label else "", 12)
@@ -58,11 +57,11 @@ def generate_pdf(row, doc_type="INVOICE"):
         pdf.set_text_color(0, 0, 0)
         pdf.set_font("Arial", "", 12)
         pdf.cell(0, 6, value)
-        # Draw underline
-        pdf.line(15 + pdf.get_string_width(label), y + 5, 15 + pdf.get_string_width(label) + pdf.get_string_width(value), y + 5)
+        pdf.line(15 + pdf.get_string_width(label), y + 5, 
+                 15 + pdf.get_string_width(label) + pdf.get_string_width(value), y + 5)
 
     draw_info_line(45, "No. ", str(row['invoice_no']))
-    draw_info_line(45, "Date: ", str(row['date'])) # Adjust X coordinate as needed
+    draw_info_line(45, "Date: ", str(row['date']))
     draw_info_line(58, "To: ", str(row['client']), color=(0,0,0))
 
     # --- Title ---
@@ -73,14 +72,10 @@ def generate_pdf(row, doc_type="INVOICE"):
     # --- Table ---
     y = 85
     pdf.set_x(25)
-    # Define column widths so they always add up correctly
     col_widths = [15, 45, 40, 15, 25, 25] 
     headers = ["SR #", "PRODUCT", "SPECS", "QTY", "PRICE", "TOTAL"]
-    
-    # Draw Header
     render_table_row(pdf, headers, col_widths, is_header=True)
     
-    # Draw Data Row
     data_row = ["1", row['equipment'], row['specs'], row['quantity'], 
                 f"{row['unit_price']:.0f}", f"{row['close_deal']:.0f}"]
     pdf.set_x(25)
@@ -92,8 +87,33 @@ def generate_pdf(row, doc_type="INVOICE"):
     pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
     pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C", True)
     
-    pdf.output(f"{doc_type}_{row['invoice_no']}.pdf")
-    # --- Regards & Account Details (Left side, y=225) ---
+    # --- Regards & Account Details (Moved after table) ---
+    pdf.set_xy(15, 225)
+    pdf.set_font("Arial", "I", 9)
+    pdf.cell(90, 5, "Regards,", ln=1)
+    
+    pdf.set_x(15)
+    pdf.set_font("Arial", "B", 9)
+    pdf.cell(90, 5, "Badar Diagnostics & Medical Equipment, Lahore", ln=1)
+    
+    pdf.set_x(15)
+    pdf.set_font("Arial", "B", 9)
+    pdf.set_text_color(0, 51, 102)
+    pdf.cell(90, 5, "Account Details:", ln=1)
+    
+    pdf.set_x(15)
+    pdf.set_font("Arial", "", 8)
+    pdf.set_text_color(0, 0, 0)
+    pdf.multi_cell(90, 4, "Badar Diagnostics & Medical Equipment\nFaysal Bank\n0155007000005585")
+
+    # --- Stamp ---
+    if os.path.exists("stamp.jpg"):
+        pdf.image("stamp.jpg", x=140, y=225, w=35)
+    
+    # --- SAVE FILE ONLY ONCE AT THE END ---
+    file_path = f"Invoice_{row['invoice_no']}.pdf"
+    pdf.output(file_path)
+    return file_path    # --- Regards & Account Details (Left side, y=225) ---
     pdf.set_xy(15, 225)
     pdf.set_font("Arial", "I", 9)
     pdf.cell(90, 5, "Regards,", ln=1)
