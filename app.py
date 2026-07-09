@@ -23,7 +23,7 @@ class InvoicePDF(FPDF):
         
         # Office Locations
         self.set_y(262); self.set_text_color(255, 255, 255); self.set_font("Arial", "", 7)
-        self.multi_cell(0, 3.5, "Lahore Office: D Block Nawab Town, Lahore   |   Okara Office: Adjacent Ibn-e-Sina Lab, Opposite DHQ, Okara\nPindi Office: Commercial Market, Rawalpindi   |   Bahawalpur Office: Model Town C, Bahawalpur", align="C")
+        self.multi_cell(0, 3.5, "Lahore Office: D Block Nawab Town, Lahore   |   Okara Office: Adjacent Ibn-e-Sina Lab, Opposite DHQ, Okara\nRawalpindi Office: Commercial Market, Rawalpindi   |   Bahawalpur Office: Model Town C, Bahawalpur", align="C")
         
         # Contact Info
         self.set_y(276); self.set_font("Arial", "B", 8)
