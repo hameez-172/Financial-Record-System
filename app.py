@@ -170,21 +170,54 @@ tabs = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit S
 tab1, tab2, tab3, tab4 = tabs
 
 with tab2:
-    st.title("➕ Register & Manage Medical Deal")
-    with st.form("biz_form", clear_on_submit=True):
-        c1, c2 = st.columns(2); client = c1.text_input("Client Name/Hospital"); team_member = c2.text_input("Team Member (Optional)")
-        c3, c4, c5, c6 = st.columns(4); specs = c3.text_input("SPECS"); equipment = c4.text_input("Equipment")
-        qty = c5.number_input("QUANTITY", min_value=0.0, format="%g"); u_price = c6.number_input("Unit Price", min_value=0.0, format="%g")
-        c7, c8 = st.columns(2); u_act = c7.number_input("Per Unit Actual Cost", min_value=0.0, format="%g"); paid = c8.number_input("Payment sent", min_value=0.0, format="%g")
-        if st.form_submit_button("Log Deal"):
-            conn = sqlite3.connect('enterprise.db')
-            inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"; close_deal = u_price * qty; profit = close_deal - (u_act * qty); status = "Paid" if (close_deal - paid) <= 0 else "Pending"
-            conn.execute("INSERT INTO business_deals (date, invoice_no, client, equipment, specs, unit_price, quantity, close_deal, unit_actual_cost, actual_cost, paid, remaining, profit, team_member, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                         (datetime.now().strftime("%Y-%m-%d"), inv_no, client, equipment, specs, u_price, qty, close_deal, u_act, u_act*qty, paid, close_deal - paid, profit, team_member, status))
-            conn.commit(); st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn); conn.close()
-            st.session_state.business_df['id'] = range(1, len(st.session_state.business_df) + 1); st.rerun()
+    st.title("➕ Register Medical Invoice")
+    
+    # Session state initialize karein
+    if 'temp_items' not in st.session_state:
+        st.session_state.temp_items = []
 
-    st.subheader("📋 Records"); st.dataframe(st.session_state.business_df, use_container_width=True, hide_index=True)
+    with st.form("add_product_form"):
+        c1, c2 = st.columns(2)
+        equipment = c1.text_input("Equipment")
+        specs = c2.text_input("SPECS")
+        c3, c4 = st.columns(2)
+        qty = c3.number_input("QUANTITY", min_value=0.0, format="%g")
+        u_price = c4.number_input("Unit Price", min_value=0.0, format="%g")
+        
+        if st.form_submit_button("➕ Add Product to Invoice"):
+            item = {"equipment": equipment, "specs": specs, "qty": qty, "price": u_price, "total": qty * u_price}
+            st.session_state.temp_items.append(item)
+            st.rerun()
+
+    # Show items
+    if st.session_state.temp_items:
+        st.write("### Invoice Items:")
+        temp_df = pd.DataFrame(st.session_state.temp_items)
+        st.table(temp_df)
+        
+        # Invoice Finalize form
+        with st.form("finalize_invoice"):
+            client = st.text_input("Client Name")
+            paid = st.number_input("Payment Received", min_value=0.0)
+            
+            if st.form_submit_button("✅ Finalize & Save Invoice"):
+                inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                total_sum = temp_df['total'].sum()
+                
+                conn = sqlite3.connect('enterprise.db')
+                # Note: Aapke database schema mein ek row per invoice hai, 
+                # yahan hum har item ko save kar rahe hain (ya total sum)
+                conn.execute("INSERT INTO business_deals (date, invoice_no, client, equipment, specs, unit_price, quantity, close_deal, status) VALUES (?,?,?,?,?,?,?,?,?)",
+                             (datetime.now().strftime("%Y-%m-%d"), inv_no, client, "Multiple Items", "See Details", 0, 0, total_sum, "Paid"))
+                conn.commit(); conn.close()
+                
+                st.session_state.temp_items = [] # Reset list
+                st.success("Invoice Saved Successfully!")
+                st.rerun()
+    
+    if st.button("🗑️ Clear List"):
+        st.session_state.temp_items = []
+        st.rerun()    st.subheader("📋 Records"); st.dataframe(st.session_state.business_df, use_container_width=True, hide_index=True)
     
     st.divider(); st.subheader("🖨️ Generate Invoice PDF")
     selected_id = st.selectbox("Select ID to Download:", st.session_state.business_df['id'].tolist())
