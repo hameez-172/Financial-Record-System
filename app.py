@@ -29,99 +29,70 @@ class InvoicePDF(FPDF):
         self.set_y(276); self.set_font("Arial", "B", 8)
         self.cell(0, 4, " 0300-7303020, 0334-7303020      E-mail: munir.badar1@gmail.com", align="C")
 
-def generate_pdf(row):
+def render_table_row(pdf, data, widths, is_header=False):
+    """Helper to render a table row with consistent borders."""
+    pdf.set_font("Arial", "B" if is_header else "", 9)
+    if is_header:
+        pdf.set_fill_color(240, 240, 240)
+    else:
+        pdf.set_fill_color(255, 255, 255)
+        
+    for i, item in enumerate(data):
+        # Align numbers (Price/Total/Qty) to 'C' (Center) or 'R' (Right)
+        align = 'C' if i in [0, 3, 4, 5] else 'L'
+        pdf.cell(widths[i], 8, str(item), 1, 0, align, True)
+    pdf.ln()
+
+def generate_pdf(row, doc_type="INVOICE"):
     pdf = InvoicePDF()
     pdf.add_page()
-    
-    # Blue Color Definition
     blue_color = (0, 153, 224)
     
-    # 1. Invoice No. Section
-    pdf.set_xy(15, 45)
-    pdf.set_font("Arial", "B", 12)
-    pdf.set_text_color(*blue_color)
-    pdf.cell(10, 5, "No.")
-    
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", "", 12)
-    inv_text = f"{row['invoice_no']}"
-    pdf.set_xy(25, 45)
-    pdf.cell(pdf.get_string_width(inv_text), 5, inv_text)
-    
-    # Underline exactly as long as text
-    pdf.set_draw_color(*blue_color)
-    pdf.line(25, 50, 25 + pdf.get_string_width(inv_text), 50)
-    
-    # 2. Date Section (Gap ke sath)
-    date_label = "Date"
-    date_val = f"{row['date']}"
-    
-    pdf.set_xy(140, 45) # Position adjust ki
-    pdf.set_font("Arial", "B", 12)
-    pdf.set_text_color(*blue_color)
-    pdf.cell(10, 5, date_label)
-    
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", "", 12)
-    # Gap ke liye x coordinate thoda aage badhaya
-    date_x = 140 + pdf.get_string_width(date_label) + 5 
-    pdf.set_xy(date_x, 45)
-    pdf.cell(pdf.get_string_width(date_val), 5, date_val)
-    
-    # Date Underline
-    pdf.line(date_x, 50, date_x + pdf.get_string_width(date_val), 50)
-    
-    # 3. Client Name (Underline ke sath)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_xy(15, 58)
-    pdf.set_font("Arial", "B", 12)
-    client_label = "To: "
-    client_name = f"{row['client']}"
-    
-    pdf.cell(pdf.get_string_width(client_label), 6, client_label)
-    pdf.set_font("Arial", "", 12)
-    pdf.cell(pdf.get_string_width(client_name), 6, client_name)
-    
-    # Client Name Underline
-    pdf.set_draw_color(0, 0, 0) # Black underline for client
-    pdf.line(15 + pdf.get_string_width(client_label), 64, 
-             15 + pdf.get_string_width(client_label) + pdf.get_string_width(client_name), 64)    
-    # Title
+    # --- Header Info (Invoice No/Date/Client) ---
+    # Using a common function for label/value pairs helps alignment
+    def draw_info_line(y, label, value, color=blue_color, bold_label=True):
+        pdf.set_xy(15, y)
+        pdf.set_font("Arial", "B" if bold_label else "", 12)
+        pdf.set_text_color(*color)
+        pdf.cell(20, 6, label)
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_font("Arial", "", 12)
+        pdf.cell(0, 6, value)
+        # Draw underline
+        pdf.line(15 + pdf.get_string_width(label), y + 5, 15 + pdf.get_string_width(label) + pdf.get_string_width(value), y + 5)
+
+    draw_info_line(45, "No. ", str(row['invoice_no']))
+    draw_info_line(45, "Date: ", str(row['date'])) # Adjust X coordinate as needed
+    draw_info_line(58, "To: ", str(row['client']), color=(0,0,0))
+
+    # --- Title ---
     pdf.set_xy(0, 70)
     pdf.set_font("Arial", "B", 16)
-    pdf.cell(210, 8, "INVOICE", align="C")
+    pdf.cell(210, 8, doc_type, align="C")
 
-    # Table Header
+    # --- Table ---
     y = 85
-    pdf.set_xy(25, y)
-    pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
-    pdf.cell(15, 8, "SR #", 1, 0, "C", True)
-    pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
-    pdf.cell(40, 8, "SPECS", 1, 0, "C", True) 
-    pdf.cell(15, 8, "QTY", 1, 0, "C", True)
-    pdf.cell(25, 8, "PRICE", 1, 0, "C", True)
-    pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
+    pdf.set_x(25)
+    # Define column widths so they always add up correctly
+    col_widths = [15, 45, 40, 15, 25, 25] 
+    headers = ["SR #", "PRODUCT", "SPECS", "QTY", "PRICE", "TOTAL"]
+    
+    # Draw Header
+    render_table_row(pdf, headers, col_widths, is_header=True)
+    
+    # Draw Data Row
+    data_row = ["1", row['equipment'], row['specs'], row['quantity'], 
+                f"{row['unit_price']:.0f}", f"{row['close_deal']:.0f}"]
+    pdf.set_x(25)
+    render_table_row(pdf, data_row, col_widths)
 
-    # Table Data Row
-    pdf.set_font("Arial", "", 9); pdf.set_x(25)
-    pdf.cell(15, 8, "1", 1, 0, "C")
-    pdf.cell(45, 8, str(row['equipment']), 1)
-    pdf.cell(40, 8, str(row['specs']), 1) 
-    pdf.cell(15, 8, str(row['quantity']), 1, 0, "C")
-    pdf.cell(25, 8, f"{row['unit_price']:.0f}", 1, 0, "C")
-    pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C")
-
-    # Grand Total
-    pdf.set_x(125); pdf.set_font("Arial", "B", 10)
+    # --- Grand Total ---
+    pdf.set_x(125)
+    pdf.set_font("Arial", "B", 10)
     pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
     pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C", True)
     
-    file_path = f"Invoice_{row['invoice_no']}.pdf"
-    # --- Footer Section Layout ---
-    # Footer se thoda upar line draw karna (y=222)
-    pdf.set_draw_color(200, 200, 200)
-    pdf.line(10, 222, 200, 222) 
-
+    pdf.output(f"{doc_type}_{row['invoice_no']}.pdf")
     # --- Regards & Account Details (Left side, y=225) ---
     pdf.set_xy(15, 225)
     pdf.set_font("Arial", "I", 9)
