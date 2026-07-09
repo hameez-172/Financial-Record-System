@@ -1,114 +1,132 @@
 import streamlit as st
+import pandas as pd
+import sqlite3
+from datetime import datetime
 from fpdf import FPDF
-from datetime import date
-import random
 import os
+import plotly.express as px
 
-st.set_page_config(page_title="Professional Invoice Generator", layout="centered")
-
-# --- PDF GENERATOR CLASS ---
+# --- PDF GENERATOR CLASS (Wahi purana design) ---
 class InvoicePDF(FPDF):
     def header(self):
-        # Top blue strips
         self.set_fill_color(0, 51, 102); self.rect(10, 8, 22, 8, "F")
         self.set_fill_color(0, 153, 224); self.rect(35, 8, 165, 8, "F")
-        if os.path.exists("lo.png"): self.image("lo.png", x=8, y=17, w=30)
-        
-        # Company Name
-        self.set_xy(42, 20); self.set_font("Arial", "B", 20); self.set_text_color(20, 40, 80)
+        if os.path.exists("lo.png"): self.image("lo.png", x=10, y=18, w=25)
+        self.set_xy(40, 20); self.set_font("Arial", "B", 20); self.set_text_color(20, 40, 80)
         self.cell(0, 10, "Badar Diagnostics & Medical Equipments")
-        self.set_text_color(0, 0, 0)
 
     def footer(self):
-        self.set_fill_color(0, 51, 102); self.rect(10, 265, 190, 15, "F")
-        self.set_fill_color(0, 153, 224); self.rect(10, 280, 190, 8, "F")
-        self.set_y(268); self.set_text_color(255, 255, 255); self.set_font("Arial", "", 7)
-        footer_text = "Lahore Office: D Block Nawab Town, Lahore | Okara Office: Adjacent Ibn-e-Sina Lab, Opposite DHQ, Okara | Pindi Office: Commercial Market, Rawalpindi | Bahawalpur Office: Model Town C, Bahawalpur"
-        self.multi_cell(0, 4, footer_text, align="C")
-        self.set_y(281); self.cell(0, 4, "0300-7303020, 0334-7303020     E-mail: munir.badar1@gmail.com", align="C")
+        self.set_fill_color(0, 51, 102); self.rect(10, 260, 190, 15, "F")
+        self.set_fill_color(0, 153, 224); self.rect(10, 275, 190, 8, "F")
+        self.set_y(262); self.set_text_color(255, 255, 255); self.set_font("Arial", "", 7)
+        self.multi_cell(0, 3.5, "Lahore Office: D Block Nawab Town, Lahore   |   Okara Office: Adjacent Ibn-e-Sina Lab, Opposite DHQ, Okara\nPindi Office: Commercial Market, Rawalpindi   |   Bahawalpur Office: Model Town C, Bahawalpur", align="C")
+        self.set_y(276); self.set_font("Arial", "B", 8)
+        self.cell(0, 4, " 0300-7303020, 0334-7303020      E-mail: munir.badar1@gmail.com", align="C")
 
-# --- APP UI ---
-st.title("📄 Professional Invoice / Quotation Generator")
-
-with st.sidebar:
-    st.header("Document Settings")
-    terms_input = st.text_area("Terms & Conditions", "1. 80% advance and 20% at the time of delivery.\n2. Prices are subject to change without notice.")
-    account_input = st.text_area("Account Details", "Badar Diagnostics & Medical Equipment\nLahore\nFaysal Bank\n0155007000005585")
-
-if "products" not in st.session_state: st.session_state.products = []
-
-doc_type = st.selectbox("Document Type", ["Quotation", "Invoice"])
-client_name = st.text_input("Client Name")
-
-st.subheader("Add Product")
-p_name = st.text_input("Product Name")
-p_desc = st.text_input("Description")
-p_qty = st.number_input("Quantity", min_value=1, value=1)
-p_price = st.number_input("Unit Price", min_value=0.0)
-
-if st.button("Add Product"):
-    st.session_state.products.append({"name": p_name, "desc": p_desc, "qty": p_qty, "price": p_price})
-    st.success("Product Added")
-
-if st.session_state.products:
-    st.subheader("Products List")
-    for i, p in enumerate(st.session_state.products, 1):
-        st.write(f"{i}. {p['name']} - {p['qty']} x {p['price']}")
-
-if st.button("Generate PDF"):
+def generate_pdf(row):
     pdf = InvoicePDF()
     pdf.add_page()
+    blue_color = (0, 153, 224)
+    pdf.set_xy(15, 45); pdf.set_font("Arial", "B", 12); pdf.set_text_color(*blue_color)
+    pdf.cell(10, 5, "No."); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", "", 12)
+    inv_text = f"{row['invoice_no']}"
+    pdf.set_xy(25, 45); pdf.cell(pdf.get_string_width(inv_text), 5, inv_text)
+    pdf.set_draw_color(*blue_color); pdf.line(25, 50, 25 + pdf.get_string_width(inv_text), 50)
     
-    # Header Details
-    pdf.set_font("Arial", "", 10)
-    number = f"QTR/BD/{random.randint(10000,99999)}"
-    pdf.set_xy(15, 45); pdf.cell(0, 5, f"No. {number}")
-    pdf.set_xy(160, 45); pdf.cell(0, 5, f"Date: {date.today().strftime('%d/%m/%Y')}")
-    pdf.set_draw_color(0, 153, 224); pdf.line(15, 50, 55, 50); pdf.line(155, 50, 195, 50)
-    pdf.set_xy(15, 58); pdf.set_font("Arial", "B", 12); pdf.cell(0, 6, f"To: {client_name}")
-    pdf.set_xy(0, 68); pdf.set_font("Arial", "B", 14); pdf.cell(210, 8, doc_type.upper(), align="C")
-
-    # Table
+    pdf.set_xy(0, 70); pdf.set_font("Arial", "B", 16); pdf.cell(210, 8, "INVOICE", align="C")
+    
+    # Table Header
     y = 85
-    pdf.set_xy(25, y)
-    pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
-    pdf.cell(15, 8, "SR #", 1, 0, "C", True)
-    pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
-    pdf.cell(40, 8, "DESCRIPTION", 1, 0, "C", True)
-    pdf.cell(15, 8, "QTY", 1, 0, "C", True)
-    pdf.cell(25, 8, "PRICE", 1, 0, "C", True)
-    pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
+    pdf.set_xy(25, y); pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
+    pdf.cell(15, 8, "SR #", 1, 0, "C", True); pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
+    pdf.cell(40, 8, "SPECS", 1, 0, "C", True); pdf.cell(15, 8, "QTY", 1, 0, "C", True)
+    pdf.cell(25, 8, "PRICE", 1, 0, "C", True); pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
 
-    pdf.set_font("Arial", "", 9)
-    grand_total = 0
-    for i, p in enumerate(st.session_state.products, 1):
-        total = p["qty"] * p["price"]
-        grand_total += total
-        pdf.set_x(25)
-        pdf.cell(15, 8, str(i), 1, 0, "C")
-        pdf.cell(45, 8, p["name"], 1)
-        pdf.cell(40, 8, p["desc"], 1)
-        pdf.cell(15, 8, str(p["qty"]), 1, 0, "C")
-        pdf.cell(25, 8, f"{p['price']:.0f}", 1, 0, "C")
-        pdf.cell(25, 8, f"{total:.0f}", 1, 1, "C")
+    pdf.set_font("Arial", "", 9); pdf.set_x(25)
+    pdf.cell(15, 8, "1", 1, 0, "C")
+    pdf.cell(45, 8, str(row['equipment']), 1)
+    pdf.cell(40, 8, str(row['specs']), 1) 
+    pdf.cell(15, 8, str(row['quantity']), 1, 0, "C")
+    pdf.cell(25, 8, f"{row['unit_price']:.0f}", 1, 0, "C")
+    pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C")
 
-    # Grand Total
     pdf.set_x(125); pdf.set_font("Arial", "B", 10)
     pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
-    pdf.cell(25, 8, f"{grand_total:.0f}", 1, 1, "C", True)
-
-    # Footer section
-    pdf.set_y(210) 
-    pdf.set_x(15); pdf.set_font("Arial", "B", 11); pdf.cell(0, 5, "Terms & Conditions:", ln=1)
-    pdf.set_font("Arial", "", 10); pdf.set_x(15); pdf.multi_cell(90, 5, terms_input)
-    pdf.ln(2); pdf.set_x(15); pdf.set_font("Arial", "B", 11); pdf.cell(0, 5, "Regards,", ln=1)
-    pdf.set_x(15); pdf.cell(0, 5, "Badar Diagnostics & Medical Equipment", ln=1)
-    pdf.set_x(15); pdf.cell(0, 5, "Lahore", ln=1)
+    pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C", True)
     
-    # Stamp & Sign
-    if os.path.exists("stamp.png"): pdf.image("stamp.png", x=140, y=215, w=45)
-    pdf.set_xy(140, 255); pdf.set_font("Arial", "B", 10); pdf.cell(50, 5, "Authorized Signatory", align="C")
+    file_path = f"Invoice_{row['invoice_no']}.pdf"
+    pdf.output(file_path)
+    return file_path   
 
-    pdf.output("final.pdf")
-    with open("final.pdf", "rb") as file:
-        st.download_button("📥 Download PDF", file, file_name=f"{doc_type}.pdf", mime="application/pdf")
+# --- APP SETUP ---
+def init_db():
+    conn = sqlite3.connect('enterprise.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS business_deals 
+                  (id INTEGER PRIMARY KEY, date TEXT, invoice_no TEXT, client TEXT, equipment TEXT, specs TEXT, 
+                  unit_price REAL, quantity REAL, close_deal REAL, unit_actual_cost REAL, actual_cost REAL, 
+                  paid REAL, remaining REAL, profit REAL, team_member TEXT, status TEXT)''')
+    conn.commit(); conn.close()
+
+init_db()
+st.set_page_config(page_title="Hameez Enterprise Hub", layout="wide")
+
+if 'business_df' not in st.session_state:
+    conn = sqlite3.connect('enterprise.db')
+    st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn); conn.close()
+
+tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit Sheets", "📊 Analytics"])
+
+with tab2:
+    st.title("➕ Register & Manage Medical Deal")
+    
+    # ADD PRODUCT SECTION
+    if 'temp_items' not in st.session_state: st.session_state.temp_items = []
+    
+    with st.expander("➕ Add Product to List"):
+        c1, c2, c3, c4 = st.columns(4)
+        item_name = c1.text_input("Equipment Name")
+        item_specs = c2.text_input("Specs")
+        item_qty = c3.number_input("Qty", min_value=1.0)
+        item_price = c4.number_input("Unit Price", min_value=0.0)
+        if st.button("Add to Temporary List"):
+            st.session_state.temp_items.append({'eq': item_name, 'sp': item_specs, 'qt': item_qty, 'pr': item_price})
+        st.write("Added Items:", st.session_state.temp_items)
+
+    with st.form("biz_form", clear_on_submit=True):
+        c1, c2 = st.columns(2); client = c1.text_input("Client Name/Hospital"); team_member = c2.text_input("Team Member (Optional)")
+        # Note: Baki fields main form main hi hain
+        c3, c4, c5, c6 = st.columns(4); specs = c3.text_input("SPECS"); equipment = c4.text_input("Equipment")
+        qty = c5.number_input("QUANTITY", min_value=0.0, format="%g"); u_price = c6.number_input("Unit Price", min_value=0.0, format="%g")
+        c7, c8 = st.columns(2); unit_actual_cost = c7.number_input("Per Unit Actual Cost", min_value=0.0, format="%g"); paid = c8.number_input("Payment sent by Client", min_value=0.0, format="%g")
+        
+        if st.form_submit_button("Log Deal"):
+            inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"; close_deal = u_price * qty; actual_cost = unit_actual_cost * qty; remaining = close_deal - paid; profit = close_deal - actual_cost; status = "Paid" if remaining <= 0 else "Pending"
+            conn = sqlite3.connect('enterprise.db')
+            conn.execute("INSERT INTO business_deals (date, invoice_no, client, equipment, specs, unit_price, quantity, close_deal, unit_actual_cost, actual_cost, paid, remaining, profit, team_member, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (datetime.now().strftime("%Y-%m-%d"), inv_no, client, equipment, specs, u_price, qty, close_deal, unit_actual_cost, actual_cost, paid, remaining, profit, team_member, status))
+            conn.commit(); st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn); conn.close(); st.rerun()
+
+    st.subheader("📋 Records")
+    st.dataframe(st.session_state.business_df, use_container_width=True, hide_index=True)
+    
+    st.divider(); st.subheader("🖨️ Generate Invoice PDF")
+    col_a, col_b = st.columns([0.7, 0.3])
+    with col_a:
+        selected_id = st.selectbox("Select Deal ID to Download:", st.session_state.business_df['id'].tolist())
+    with col_b:
+        if st.button("Generate & Download"):
+            row = st.session_state.business_df[st.session_state.business_df['id'] == selected_id].iloc[0]
+            path = generate_pdf(row)
+            with open(path, "rb") as f:
+                st.download_button("✅ Download PDF Now", f, file_name=path, mime="application/pdf")
+
+with tab3:
+    st.title("💳 Financial Sheets"); st.dataframe(st.session_state.business_df, use_container_width=True)
+
+with tab4:
+    st.title("📊 Performance Insights")
+    if not st.session_state.business_df.empty:
+        st.metric("Total Revenue", f"Rs {int(st.session_state.business_df['close_deal'].sum()):,}")
+        fig = px.bar(st.session_state.business_df, x='invoice_no', y='close_deal', template="plotly_dark")
+        st.plotly_chart(fig, use_container_width=True)
