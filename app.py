@@ -217,7 +217,9 @@ with tab2:
     
     if st.button("🗑️ Clear List"):
         st.session_state.temp_items = []
-        st.rerun()    st.subheader("📋 Records"); st.dataframe(st.session_state.business_df, use_container_width=True, hide_index=True)
+        st.rerun()    
+    
+    st.subheader("📋 Records"); st.dataframe(st.session_state.business_df, use_container_width=True, hide_index=True)
     
     st.divider(); st.subheader("🖨️ Generate Invoice PDF")
     selected_id = st.selectbox("Select ID to Download:", st.session_state.business_df['id'].tolist())
