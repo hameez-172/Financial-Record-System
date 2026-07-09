@@ -134,6 +134,9 @@ tab1, tab2, tab3, tab4 = tabs
 with tab2:
     st.title("➕ Register Medical Invoice")
     
+    # 1. Client name ko form ke upar shift kiya
+    client = st.text_input("Client Name")
+    
     if 'temp_items' not in st.session_state:
         st.session_state.temp_items = []
 
@@ -155,29 +158,33 @@ with tab2:
         temp_df = pd.DataFrame(st.session_state.temp_items)
         st.table(temp_df)
         
-        with st.form("finalize_invoice"):
-            client = st.text_input("Client Name")
-            paid = st.number_input("Payment Received", min_value=0.0)
-            
-            if st.form_submit_button("✅ Finalize & Save Invoice"):
+        if st.button("✅ Finalize & Save Invoice"):
+            if client == "":
+                st.error("Please enter Client Name!")
+            else:
                 inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
                 total_sum = temp_df['total'].sum()
                 
                 conn = sqlite3.connect('enterprise.db')
                 conn.execute("INSERT INTO business_deals (date, invoice_no, client, equipment, specs, unit_price, quantity, close_deal, status) VALUES (?,?,?,?,?,?,?,?,?)",
                              (datetime.now().strftime("%Y-%m-%d"), inv_no, client, "Multiple Items", "See Details", 0, 0, total_sum, "Paid"))
-                conn.commit(); conn.close()
+                conn.commit()
+                
+                # 2. Database se naya data foran fetch karein
+                st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
+                st.session_state.business_df['id'] = range(1, len(st.session_state.business_df) + 1)
+                conn.close()
                 
                 st.session_state.temp_items = [] 
                 st.success("Invoice Saved Successfully!")
-                st.rerun()
+                st.rerun() # Yeh page ko reload karke naya data dikha dega
     
     if st.button("🗑️ Clear List"):
         st.session_state.temp_items = []
         st.rerun()    
     
-    st.subheader("📋 Records"); st.dataframe(st.session_state.business_df, use_container_width=True, hide_index=True)
-    
+    st.subheader("📋 Records")
+    st.dataframe(st.session_state.business_df, use_container_width=True, hide_index=True)    
     st.divider(); st.subheader("🖨️ Generate Invoice PDF")
     selected_id = st.selectbox("Select ID to Download:", st.session_state.business_df['id'].tolist())
     if st.button("Generate & Download"):
