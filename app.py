@@ -6,7 +6,7 @@ from fpdf import FPDF
 import os
 import plotly.express as px
 
-# --- PDF GENERATOR CLASS (Wahi purana design) ---
+# --- PDF GENERATOR CLASS (Letterhead / header / footer design UNCHANGED) ---
 class InvoicePDF(FPDF):
     def header(self):
         self.set_fill_color(0, 51, 102); self.rect(10, 8, 22, 8, "F")
@@ -23,50 +23,81 @@ class InvoicePDF(FPDF):
         self.set_y(276); self.set_font("Arial", "B", 8)
         self.cell(0, 4, " 0300-7303020, 0334-7303020      E-mail: munir.badar1@gmail.com", align="C")
 
-def generate_pdf(row):
-    pdf = InvoicePDF()
-    pdf.add_page()
-    blue_color = (0, 153, 224)
-    pdf.set_xy(15, 45); pdf.set_font("Arial", "B", 12); pdf.set_text_color(*blue_color)
-    pdf.cell(10, 5, "No."); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", "", 12)
-    inv_text = f"{row['invoice_no']}"
-    pdf.set_xy(25, 45); pdf.cell(pdf.get_string_width(inv_text), 5, inv_text)
-    pdf.set_draw_color(*blue_color); pdf.line(25, 50, 25 + pdf.get_string_width(inv_text), 50)
-    
-    pdf.set_xy(0, 70); pdf.set_font("Arial", "B", 16); pdf.cell(210, 8, "INVOICE", align="C")
-    
-    # Table Header
-    y = 85
-    pdf.set_xy(25, y); pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
+
+def _draw_item_table_header(pdf):
+    pdf.set_x(25)
+    pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
     pdf.cell(15, 8, "SR #", 1, 0, "C", True); pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
     pdf.cell(40, 8, "SPECS", 1, 0, "C", True); pdf.cell(15, 8, "QTY", 1, 0, "C", True)
     pdf.cell(25, 8, "PRICE", 1, 0, "C", True); pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
 
-    pdf.set_font("Arial", "", 9); pdf.set_x(25)
-    pdf.cell(15, 8, "1", 1, 0, "C")
-    pdf.cell(45, 8, str(row['equipment']), 1)
-    pdf.cell(40, 8, str(row['specs']), 1) 
-    pdf.cell(15, 8, str(row['quantity']), 1, 0, "C")
-    pdf.cell(25, 8, f"{row['unit_price']:.0f}", 1, 0, "C")
-    pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C")
+
+def generate_pdf(deal, items_df):
+    """deal = single row (dict-like) from business_deals, items_df = all products of that deal"""
+    pdf = InvoicePDF()
+    pdf.add_page()
+    blue_color = (0, 153, 224)
+
+    pdf.set_xy(15, 45); pdf.set_font("Arial", "B", 12); pdf.set_text_color(*blue_color)
+    pdf.cell(10, 5, "No."); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", "", 12)
+    inv_text = f"{deal['invoice_no']}"
+    pdf.set_xy(25, 45); pdf.cell(pdf.get_string_width(inv_text), 5, inv_text)
+    pdf.set_draw_color(*blue_color); pdf.line(25, 50, 25 + pdf.get_string_width(inv_text), 50)
+
+    # Client + Date (small addition so the invoice shows who it belongs to)
+    pdf.set_xy(15, 55); pdf.set_font("Arial", "B", 10); pdf.set_text_color(0, 0, 0)
+    pdf.cell(120, 5, f"Client: {deal['client']}")
+    pdf.set_xy(140, 55); pdf.cell(50, 5, f"Date: {deal['date']}", align="R")
+
+    pdf.set_xy(0, 70); pdf.set_font("Arial", "B", 16); pdf.cell(210, 8, "INVOICE", align="C")
+
+    pdf.set_xy(25, 85)
+    _draw_item_table_header(pdf)
+    pdf.set_font("Arial", "", 9)
+
+    for i, item in enumerate(items_df.itertuples(), start=1):
+        # start a fresh page (with same header/footer) if table is about to hit the footer band
+        if pdf.get_y() + 8 > 250:
+            pdf.add_page()
+            pdf.set_xy(25, 45)
+            _draw_item_table_header(pdf)
+            pdf.set_font("Arial", "", 9)
+
+        pdf.set_x(25)
+        pdf.cell(15, 8, str(i), 1, 0, "C")
+        pdf.cell(45, 8, str(item.equipment), 1)
+        pdf.cell(40, 8, str(item.specs), 1)
+        pdf.cell(15, 8, f"{item.quantity:g}", 1, 0, "C")
+        pdf.cell(25, 8, f"{item.unit_price:.0f}", 1, 0, "C")
+        pdf.cell(25, 8, f"{item.line_total:.0f}", 1, 1, "C")
+
+    if pdf.get_y() + 8 > 250:
+        pdf.add_page()
+        pdf.set_y(45)
 
     pdf.set_x(125); pdf.set_font("Arial", "B", 10)
     pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
-    pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C", True)
-    
-    file_path = f"Invoice_{row['invoice_no']}.pdf"
+    pdf.cell(25, 8, f"{deal['close_deal']:.0f}", 1, 1, "C", True)
+
+    file_path = f"Invoice_{deal['invoice_no']}.pdf"
     pdf.output(file_path)
-    return file_path   
+    return file_path
+
 
 # --- APP SETUP ---
 def init_db():
     conn = sqlite3.connect('enterprise.db')
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS business_deals 
-                  (id INTEGER PRIMARY KEY, date TEXT, invoice_no TEXT, client TEXT, equipment TEXT, specs TEXT, 
-                  unit_price REAL, quantity REAL, close_deal REAL, unit_actual_cost REAL, actual_cost REAL, 
-                  paid REAL, remaining REAL, profit REAL, team_member TEXT, status TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS business_deals
+                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, invoice_no TEXT, client TEXT,
+                  close_deal REAL, actual_cost REAL, paid REAL, remaining REAL, profit REAL,
+                  team_member TEXT, status TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS deal_items
+                  (id INTEGER PRIMARY KEY AUTOINCREMENT, deal_id INTEGER, equipment TEXT, specs TEXT,
+                  quantity REAL, unit_price REAL, unit_actual_cost REAL, line_total REAL, line_actual_cost REAL,
+                  FOREIGN KEY(deal_id) REFERENCES business_deals(id))''')
     conn.commit(); conn.close()
+
 
 init_db()
 st.set_page_config(page_title="Hameez Enterprise Hub", layout="wide")
@@ -75,54 +106,140 @@ if 'business_df' not in st.session_state:
     conn = sqlite3.connect('enterprise.db')
     st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn); conn.close()
 
+if 'temp_items' not in st.session_state:
+    st.session_state.temp_items = []
+
 tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit Sheets", "📊 Analytics"])
 
 with tab2:
-    st.title("➕ Register & Manage Medical Deal")
-    
-    # ADD PRODUCT SECTION
-    if 'temp_items' not in st.session_state: st.session_state.temp_items = []
-    
-    with st.expander("➕ Add Product to List"):
-        c1, c2, c3, c4 = st.columns(4)
-        item_name = c1.text_input("Equipment Name")
-        item_specs = c2.text_input("Specs")
-        item_qty = c3.number_input("Qty", min_value=1.0)
-        item_price = c4.number_input("Unit Price", min_value=0.0)
-        if st.button("Add to Temporary List"):
-            st.session_state.temp_items.append({'eq': item_name, 'sp': item_specs, 'qt': item_qty, 'pr': item_price})
-        st.write("Added Items:", st.session_state.temp_items)
+    st.title("💼 Business Deals")
+    st.caption("Ek deal mein multiple products add karein — sab ek hi invoice mein save aur print honge.")
 
-    with st.form("biz_form", clear_on_submit=True):
-        c1, c2 = st.columns(2); client = c1.text_input("Client Name/Hospital"); team_member = c2.text_input("Team Member (Optional)")
-        # Note: Baki fields main form main hi hain
-        c3, c4, c5, c6 = st.columns(4); specs = c3.text_input("SPECS"); equipment = c4.text_input("Equipment")
-        qty = c5.number_input("QUANTITY", min_value=0.0, format="%g"); u_price = c6.number_input("Unit Price", min_value=0.0, format="%g")
-        c7, c8 = st.columns(2); unit_actual_cost = c7.number_input("Per Unit Actual Cost", min_value=0.0, format="%g"); paid = c8.number_input("Payment sent by Client", min_value=0.0, format="%g")
-        
-        if st.form_submit_button("Log Deal"):
-            inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"; close_deal = u_price * qty; actual_cost = unit_actual_cost * qty; remaining = close_deal - paid; profit = close_deal - actual_cost; status = "Paid" if remaining <= 0 else "Pending"
-            conn = sqlite3.connect('enterprise.db')
-            conn.execute("INSERT INTO business_deals (date, invoice_no, client, equipment, specs, unit_price, quantity, close_deal, unit_actual_cost, actual_cost, paid, remaining, profit, team_member, status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                         (datetime.now().strftime("%Y-%m-%d"), inv_no, client, equipment, specs, u_price, qty, close_deal, unit_actual_cost, actual_cost, paid, remaining, profit, team_member, status))
-            conn.commit(); st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn); conn.close(); st.rerun()
+    # ---------------- ADD PRODUCT SECTION ----------------
+    with st.container(border=True):
+        st.subheader("➕ Add Product")
+        c1, c2, c3, c4, c5 = st.columns([2, 2, 1, 1.2, 1.2])
+        item_name = c1.text_input("Equipment Name", key="item_name")
+        item_specs = c2.text_input("Specs", key="item_specs")
+        item_qty = c3.number_input("Qty", min_value=1.0, format="%g", key="item_qty")
+        item_price = c4.number_input("Unit Price", min_value=0.0, format="%g", key="item_price")
+        item_cost = c5.number_input("Per Unit Actual Cost", min_value=0.0, format="%g", key="item_cost")
 
+        add_col, _ = st.columns([1, 3])
+        if add_col.button("➕ Add to List", use_container_width=True):
+            if item_name.strip():
+                st.session_state.temp_items.append({
+                    'equipment': item_name,
+                    'specs': item_specs,
+                    'quantity': item_qty,
+                    'unit_price': item_price,
+                    'unit_actual_cost': item_cost,
+                    'line_total': item_qty * item_price,
+                    'line_actual_cost': item_qty * item_cost,
+                })
+                st.rerun()
+            else:
+                st.warning("Equipment Name likhna zaroori hai.")
+
+        if st.session_state.temp_items:
+            st.divider()
+            st.markdown("**Added Items:**")
+            hc1, hc2, hc3, hc4, hc5, hc6 = st.columns([2, 2, 1, 1, 1, 0.6])
+            hc1.markdown("**Equipment**"); hc2.markdown("**Specs**"); hc3.markdown("**Qty**")
+            hc4.markdown("**Price**"); hc5.markdown("**Total**")
+
+            for idx, item in enumerate(st.session_state.temp_items):
+                cc1, cc2, cc3, cc4, cc5, cc6 = st.columns([2, 2, 1, 1, 1, 0.6])
+                cc1.write(item['equipment']); cc2.write(item['specs'])
+                cc3.write(f"{item['quantity']:g}"); cc4.write(f"{item['unit_price']:.0f}")
+                cc5.write(f"{item['line_total']:.0f}")
+                if cc6.button("🗑️", key=f"del_{idx}"):
+                    st.session_state.temp_items.pop(idx)
+                    st.rerun()
+
+            running_total = sum(i['line_total'] for i in st.session_state.temp_items)
+            st.info(f"**Running Total: Rs {running_total:,.0f}**")
+        else:
+            st.caption("Abhi koi item add nahi hua.")
+
+    st.write("")
+
+    # ---------------- DEAL DETAILS / SUBMIT SECTION ----------------
+    with st.container(border=True):
+        st.subheader("🧾 Deal Details")
+        with st.form("biz_form", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            client = c1.text_input("Client Name/Hospital")
+            team_member = c2.text_input("Team Member (Optional)")
+            c3, c4 = st.columns(2)
+            paid = c3.number_input("Payment sent by Client", min_value=0.0, format="%g")
+
+            submitted = st.form_submit_button("✅ Log Deal", use_container_width=True)
+
+            if submitted:
+                if not st.session_state.temp_items:
+                    st.error("Pehle kam az kam ek product add karein.")
+                elif not client.strip():
+                    st.error("Client Name zaroori hai.")
+                else:
+                    close_deal = sum(i['line_total'] for i in st.session_state.temp_items)
+                    actual_cost = sum(i['line_actual_cost'] for i in st.session_state.temp_items)
+                    remaining = close_deal - paid
+                    profit = close_deal - actual_cost
+                    status = "Paid" if remaining <= 0 else "Pending"
+                    inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+                    conn = sqlite3.connect('enterprise.db')
+                    cur = conn.cursor()
+                    cur.execute("""INSERT INTO business_deals
+                        (date, invoice_no, client, close_deal, actual_cost, paid, remaining, profit, team_member, status)
+                        VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                        (datetime.now().strftime("%Y-%m-%d"), inv_no, client, close_deal, actual_cost,
+                         paid, remaining, profit, team_member, status))
+                    deal_id = cur.lastrowid
+
+                    for item in st.session_state.temp_items:
+                        cur.execute("""INSERT INTO deal_items
+                            (deal_id, equipment, specs, quantity, unit_price, unit_actual_cost, line_total, line_actual_cost)
+                            VALUES (?,?,?,?,?,?,?,?)""",
+                            (deal_id, item['equipment'], item['specs'], item['quantity'], item['unit_price'],
+                             item['unit_actual_cost'], item['line_total'], item['line_actual_cost']))
+
+                    conn.commit()
+                    st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
+                    conn.close()
+                    st.session_state.temp_items = []
+                    st.success(f"Deal {inv_no} save ho gayi!")
+                    st.rerun()
+
+    st.divider()
     st.subheader("📋 Records")
     st.dataframe(st.session_state.business_df, use_container_width=True, hide_index=True)
-    
-    st.divider(); st.subheader("🖨️ Generate Invoice PDF")
-    col_a, col_b = st.columns([0.7, 0.3])
-    with col_a:
-        selected_id = st.selectbox("Select Deal ID to Download:", st.session_state.business_df['id'].tolist())
-    with col_b:
-        if st.button("Generate & Download"):
-            row = st.session_state.business_df[st.session_state.business_df['id'] == selected_id].iloc[0]
-            path = generate_pdf(row)
-            with open(path, "rb") as f:
-                st.download_button("✅ Download PDF Now", f, file_name=path, mime="application/pdf")
+
+    st.divider()
+    st.subheader("🖨️ Generate Invoice PDF")
+    if not st.session_state.business_df.empty:
+        col_a, col_b = st.columns([0.7, 0.3])
+        with col_a:
+            selected_id = st.selectbox("Select Deal ID to Download:", st.session_state.business_df['id'].tolist())
+        with col_b:
+            st.write("")
+            if st.button("Generate & Download", use_container_width=True):
+                conn = sqlite3.connect('enterprise.db')
+                deal_row = st.session_state.business_df[st.session_state.business_df['id'] == selected_id].iloc[0]
+                items_df = pd.read_sql(
+                    "SELECT * FROM deal_items WHERE deal_id = ?", conn, params=(int(selected_id),)
+                )
+                conn.close()
+                path = generate_pdf(deal_row, items_df)
+                with open(path, "rb") as f:
+                    st.download_button("✅ Download PDF Now", f, file_name=path, mime="application/pdf")
+    else:
+        st.info("Abhi koi record nahi hai.")
 
 with tab3:
-    st.title("💳 Financial Sheets"); st.dataframe(st.session_state.business_df, use_container_width=True)
+    st.title("💳 Financial Sheets")
+    st.dataframe(st.session_state.business_df, use_container_width=True)
 
 with tab4:
     st.title("📊 Performance Insights")
