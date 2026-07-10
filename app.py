@@ -29,7 +29,7 @@ class InvoicePDF(FPDF):
         self.set_y(276); self.set_font("Arial", "B", 8)
         self.cell(0, 4, " 0300-7303020, 0334-7303020      E-mail: munir.badar1@gmail.com", align="C")
 
-def generate_pdf(row):
+def generate_pdf(row, items_df):
     pdf = InvoicePDF()
     pdf.add_page()
     
@@ -102,14 +102,16 @@ def generate_pdf(row):
     pdf.cell(25, 8, "PRICE", 1, 0, "C", True)
     pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
 
-    # Table Data Row
-    pdf.set_font("Arial", "", 9); pdf.set_x(25)
-    pdf.cell(15, 8, "1", 1, 0, "C")
-    pdf.cell(45, 8, str(row['equipment']), 1)
-    pdf.cell(40, 8, str(row['specs']), 1) 
-    pdf.cell(15, 8, str(row['quantity']), 1, 0, "C")
-    pdf.cell(25, 8, f"{row['unit_price']:.0f}", 1, 0, "C")
-    pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C")
+  # Table Data Rows (Isay replace karein)
+    pdf.set_font("Arial", "", 9)
+    for index, item in items_df.iterrows():
+        pdf.set_x(25)
+        pdf.cell(15, 8, str(index + 1), 1, 0, "C")
+        pdf.cell(45, 8, str(item['equipment']), 1)
+        pdf.cell(40, 8, str(item['specs']), 1) 
+        pdf.cell(15, 8, str(item['quantity']), 1, 0, "C")
+        pdf.cell(25, 8, f"{item['unit_price']:.0f}", 1, 0, "C")
+        pdf.cell(25, 8, f"{item['line_total']:.0f}", 1, 1, "C")
 
     # Grand Total
     pdf.set_x(125); pdf.set_font("Arial", "B", 10)
