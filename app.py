@@ -102,17 +102,24 @@ def generate_pdf(row, items_df):
     pdf.cell(25, 8, "PRICE", 1, 0, "C", True)
     pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
 
-  # Table Data Rows (Isay replace karein)
+  # Table Data Rows
     pdf.set_font("Arial", "", 9)
+    # Loop through all items linked to this deal
     for index, item in items_df.iterrows():
         pdf.set_x(25)
+        # Srf string convert krain, None ko empty string bna dein
+        equip = str(item['equipment']) if item['equipment'] is not None else ""
+        specs = str(item['specs']) if item['specs'] is not None else ""
+        qty = f"{item['quantity']:g}"
+        price = f"{item['unit_price']:,.0f}"
+        total = f"{item['line_total']:,.0f}"
+        
         pdf.cell(15, 8, str(index + 1), 1, 0, "C")
-        pdf.cell(45, 8, str(item['equipment']), 1)
-        pdf.cell(40, 8, str(item['specs']), 1) 
-        pdf.cell(15, 8, str(item['quantity']), 1, 0, "C")
-        pdf.cell(25, 8, f"{item['unit_price']:.0f}", 1, 0, "C")
-        pdf.cell(25, 8, f"{item['line_total']:.0f}", 1, 1, "C")
-
+        pdf.cell(45, 8, equip, 1)
+        pdf.cell(40, 8, specs, 1) 
+        pdf.cell(15, 8, qty, 1, 0, "C")
+        pdf.cell(25, 8, price, 1, 0, "C")
+        pdf.cell(25, 8, total, 1, 1, "C")
     # Grand Total
     pdf.set_x(125); pdf.set_font("Arial", "B", 10)
     pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
