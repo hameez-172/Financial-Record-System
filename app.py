@@ -6,9 +6,9 @@ from fpdf import FPDF
 import os
 import plotly.express as px
 
-# --- PDF GENERATOR CLASS (Letterhead / header / footer design UNCHANGED) ---
 class InvoicePDF(FPDF):
     def header(self):
+        # Top Strips
         self.set_fill_color(0, 51, 102); self.rect(10, 8, 22, 8, "F")
         self.set_fill_color(0, 153, 224); self.rect(35, 8, 165, 8, "F")
         if os.path.exists("lo.png"): self.image("lo.png", x=10, y=18, w=25)
@@ -16,73 +16,140 @@ class InvoicePDF(FPDF):
         self.cell(0, 10, "Badar Diagnostics & Medical Equipments")
 
     def footer(self):
+        # Dark Blue Footer Background
         self.set_fill_color(0, 51, 102); self.rect(10, 260, 190, 15, "F")
+        # Light Blue Contact Line
         self.set_fill_color(0, 153, 224); self.rect(10, 275, 190, 8, "F")
+        
+        # Office Locations
         self.set_y(262); self.set_text_color(255, 255, 255); self.set_font("Arial", "", 7)
         self.multi_cell(0, 3.5, "Lahore Office: D Block Nawab Town, Lahore   |   Okara Office: Adjacent Ibn-e-Sina Lab, Opposite DHQ, Okara\nPindi Office: Commercial Market, Rawalpindi   |   Bahawalpur Office: Model Town C, Bahawalpur", align="C")
+        
+        # Contact Info
         self.set_y(276); self.set_font("Arial", "B", 8)
         self.cell(0, 4, " 0300-7303020, 0334-7303020      E-mail: munir.badar1@gmail.com", align="C")
 
-
-def _draw_item_table_header(pdf):
-    pdf.set_x(25)
-    pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
-    pdf.cell(15, 8, "SR #", 1, 0, "C", True); pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
-    pdf.cell(40, 8, "SPECS", 1, 0, "C", True); pdf.cell(15, 8, "QTY", 1, 0, "C", True)
-    pdf.cell(25, 8, "PRICE", 1, 0, "C", True); pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
-
-
-def generate_pdf(deal, items_df):
-    """deal = single row (dict-like) from business_deals, items_df = all products of that deal"""
+def generate_pdf(row):
     pdf = InvoicePDF()
     pdf.add_page()
+    
+    # Blue Color Definition
     blue_color = (0, 153, 224)
+    
+    # 1. Invoice No. Section
+    pdf.set_xy(15, 45)
+    pdf.set_font("Arial", "B", 12)
+    pdf.set_text_color(*blue_color)
+    pdf.cell(10, 5, "No.")
+    
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Arial", "", 12)
+    inv_text = f"{row['invoice_no']}"
+    pdf.set_xy(25, 45)
+    pdf.cell(pdf.get_string_width(inv_text), 5, inv_text)
+    
+    # Underline exactly as long as text
+    pdf.set_draw_color(*blue_color)
+    pdf.line(25, 50, 25 + pdf.get_string_width(inv_text), 50)
+    
+    # 2. Date Section (Gap ke sath)
+    date_label = "Date"
+    date_val = f"{row['date']}"
+    
+    pdf.set_xy(140, 45) # Position adjust ki
+    pdf.set_font("Arial", "B", 12)
+    pdf.set_text_color(*blue_color)
+    pdf.cell(10, 5, date_label)
+    
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Arial", "", 12)
+    # Gap ke liye x coordinate thoda aage badhaya
+    date_x = 140 + pdf.get_string_width(date_label) + 5 
+    pdf.set_xy(date_x, 45)
+    pdf.cell(pdf.get_string_width(date_val), 5, date_val)
+    
+    # Date Underline
+    pdf.line(date_x, 50, date_x + pdf.get_string_width(date_val), 50)
+    
+    # 3. Client Name (Underline ke sath)
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_xy(15, 58)
+    pdf.set_font("Arial", "B", 12)
+    client_label = "To: "
+    client_name = f"{row['client']}"
+    
+    pdf.cell(pdf.get_string_width(client_label), 6, client_label)
+    pdf.set_font("Arial", "", 12)
+    pdf.cell(pdf.get_string_width(client_name), 6, client_name)
+    
+    # Client Name Underline
+    pdf.set_draw_color(0, 0, 0) # Black underline for client
+    pdf.line(15 + pdf.get_string_width(client_label), 64, 
+             15 + pdf.get_string_width(client_label) + pdf.get_string_width(client_name), 64)    
+    # Title
+    pdf.set_xy(0, 70)
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(210, 8, "INVOICE", align="C")
 
-    pdf.set_xy(15, 45); pdf.set_font("Arial", "B", 12); pdf.set_text_color(*blue_color)
-    pdf.cell(10, 5, "No."); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", "", 12)
-    inv_text = f"{deal['invoice_no']}"
-    pdf.set_xy(25, 45); pdf.cell(pdf.get_string_width(inv_text), 5, inv_text)
-    pdf.set_draw_color(*blue_color); pdf.line(25, 50, 25 + pdf.get_string_width(inv_text), 50)
+    # Table Header
+    y = 85
+    pdf.set_xy(25, y)
+    pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
+    pdf.cell(15, 8, "SR #", 1, 0, "C", True)
+    pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
+    pdf.cell(40, 8, "SPECS", 1, 0, "C", True) 
+    pdf.cell(15, 8, "QTY", 1, 0, "C", True)
+    pdf.cell(25, 8, "PRICE", 1, 0, "C", True)
+    pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
 
-    # Client + Date (small addition so the invoice shows who it belongs to)
-    pdf.set_xy(15, 55); pdf.set_font("Arial", "B", 10); pdf.set_text_color(0, 0, 0)
-    pdf.cell(120, 5, f"Client: {deal['client']}")
-    pdf.set_xy(140, 55); pdf.cell(50, 5, f"Date: {deal['date']}", align="R")
+    # Table Data Row
+    pdf.set_font("Arial", "", 9); pdf.set_x(25)
+    pdf.cell(15, 8, "1", 1, 0, "C")
+    pdf.cell(45, 8, str(row['equipment']), 1)
+    pdf.cell(40, 8, str(row['specs']), 1) 
+    pdf.cell(15, 8, str(row['quantity']), 1, 0, "C")
+    pdf.cell(25, 8, f"{row['unit_price']:.0f}", 1, 0, "C")
+    pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C")
 
-    pdf.set_xy(0, 70); pdf.set_font("Arial", "B", 16); pdf.cell(210, 8, "INVOICE", align="C")
-
-    pdf.set_xy(25, 85)
-    _draw_item_table_header(pdf)
-    pdf.set_font("Arial", "", 9)
-
-    for i, item in enumerate(items_df.itertuples(), start=1):
-        # start a fresh page (with same header/footer) if table is about to hit the footer band
-        if pdf.get_y() + 8 > 250:
-            pdf.add_page()
-            pdf.set_xy(25, 45)
-            _draw_item_table_header(pdf)
-            pdf.set_font("Arial", "", 9)
-
-        pdf.set_x(25)
-        pdf.cell(15, 8, str(i), 1, 0, "C")
-        pdf.cell(45, 8, str(item.equipment), 1)
-        pdf.cell(40, 8, str(item.specs), 1)
-        pdf.cell(15, 8, f"{item.quantity:g}", 1, 0, "C")
-        pdf.cell(25, 8, f"{item.unit_price:.0f}", 1, 0, "C")
-        pdf.cell(25, 8, f"{item.line_total:.0f}", 1, 1, "C")
-
-    if pdf.get_y() + 8 > 250:
-        pdf.add_page()
-        pdf.set_y(45)
-
+    # Grand Total
     pdf.set_x(125); pdf.set_font("Arial", "B", 10)
     pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
-    pdf.cell(25, 8, f"{deal['close_deal']:.0f}", 1, 1, "C", True)
+    pdf.cell(25, 8, f"{row['close_deal']:.0f}", 1, 1, "C", True)
+    
+    file_path = f"Invoice_{row['invoice_no']}.pdf"
+    # --- Footer Section Layout ---
+    # Footer se thoda upar line draw karna (y=222)
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(10, 222, 200, 222) 
 
-    file_path = f"Invoice_{deal['invoice_no']}.pdf"
+    # --- Regards & Account Details (Left side, y=225) ---
+    pdf.set_xy(15, 225)
+    pdf.set_font("Arial", "I", 9)
+    pdf.cell(90, 5, "Regards,", ln=1)
+    
+    pdf.set_x(15)
+    pdf.set_font("Arial", "B", 9)
+    pdf.cell(90, 5, "Badar Diagnostics & Medical Equipment, Lahore", ln=1)
+    
+    pdf.set_x(15)
+    pdf.set_font("Arial", "B", 9)
+    pdf.set_text_color(0, 51, 102) # Dark Blue
+    pdf.cell(90, 5, "Account Details:", ln=1)
+    
+    pdf.set_x(15)
+    pdf.set_font("Arial", "", 8)
+    pdf.set_text_color(0, 0, 0) # Black
+    pdf.multi_cell(90, 4, "Badar Diagnostics & Medical Equipment\nFaysal Bank\n0155007000005585")
+
+    # --- Stamp (Right side, y=225) ---
+    if os.path.exists("stamp.jpg"):
+        # Stamp ko text ke barabar set kiya hai
+        pdf.image("stamp.jpg", x=140, y=225, w=35)
+    
+    # Save the file
+    file_path = f"Invoice_{row['invoice_no']}.pdf"
     pdf.output(file_path)
-    return file_path
-
+    return file_path   
 
 # --- APP SETUP ---
 def init_db():
