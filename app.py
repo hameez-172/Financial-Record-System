@@ -202,6 +202,97 @@ tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "�
 with tab2:
     st.title("💼 Business Deals")
 
+    # ---- callback helpers ----
+    # IMPORTANT: widget-tied session_state keys can only be reset INSIDE a callback
+    # (on_click), never in the normal script body after that widget has already
+    # rendered in the same run — that's what was causing the StreamlitAPIException.
+
+    def _add_item_cb():
+        name = st.session_state.item_name_input
+        if name and name.strip():
+            qty = st.session_state.item_qty_input
+            price = st.session_state.item_price_input
+            cost = st.session_state.item_cost_input
+            st.session_state.temp_items.append({
+                'equipment': name,
+                'specs': st.session_state.item_specs_input,
+                'quantity': qty,
+                'unit_price': price,
+                'unit_actual_cost': cost,
+                'line_total': qty * price,
+                'line_actual_cost': qty * cost,
+            })
+            # reset only the product fields so client/team/paid stay filled
+            st.session_state.item_name_input = ""
+            st.session_state.item_specs_input = ""
+            st.session_state.item_qty_input = 1
+            st.session_state.item_price_input = 0.0
+            st.session_state.item_cost_input = 0.0
+            st.session_state.add_item_warning = False
+        else:
+            st.session_state.add_item_warning = True
+
+    def _remove_item_cb(idx):
+        if 0 <= idx < len(st.session_state.temp_items):
+            st.session_state.temp_items.pop(idx)
+
+    def _log_deal_cb():
+        # ---- 2) Without at least one added product, the deal can't be logged ----
+        if not st.session_state.temp_items:
+            st.session_state.deal_message = ("error", "Pehle kam az kam ek product add karein.")
+            return
+        if not st.session_state.deal_client.strip():
+            st.session_state.deal_message = ("error", "Client Name zaroori hai.")
+            return
+
+        items = st.session_state.temp_items
+        close_deal = sum(i['line_total'] for i in items)
+        actual_cost = sum(i['line_actual_cost'] for i in items)
+        paid = st.session_state.deal_paid
+        remaining = close_deal - paid
+        profit = close_deal - actual_cost
+        status = "Paid" if remaining <= 0 else "Pending"
+        inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+        # ---- 5) 1 item -> real equipment/specs. >1 items -> comma separated
+        # equipment names, specs column just says "Multiple Items" ----
+        if len(items) == 1:
+            equipment_display = items[0]['equipment']
+            specs_display = items[0]['specs']
+        else:
+            equipment_display = ", ".join(i['equipment'] for i in items)
+            specs_display = "Multiple Items"
+
+        conn = sqlite3.connect('enterprise.db')
+        cur = conn.cursor()
+        # ---- 4) one deal = one row = one invoice_no, with totals summed across
+        # all items (close_deal, actual_cost, paid, remaining, profit) ----
+        cur.execute("""INSERT INTO business_deals
+            (date, invoice_no, client, equipment, specs, close_deal, actual_cost,
+             paid, remaining, profit, team_member, status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (datetime.now().strftime("%Y-%m-%d"), inv_no, st.session_state.deal_client, equipment_display,
+             specs_display, close_deal, actual_cost, paid, remaining, profit,
+             st.session_state.deal_team_member, status))
+        deal_id = cur.lastrowid
+
+        for item in items:
+            cur.execute("""INSERT INTO deal_items
+                (deal_id, equipment, specs, quantity, unit_price, unit_actual_cost, line_total, line_actual_cost)
+                VALUES (?,?,?,?,?,?,?,?)""",
+                (deal_id, item['equipment'], item['specs'], item['quantity'], item['unit_price'],
+                 item['unit_actual_cost'], item['line_total'], item['line_actual_cost']))
+
+        conn.commit()
+        st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
+        conn.close()
+
+        st.session_state.temp_items = []
+        st.session_state.deal_client = ""
+        st.session_state.deal_team_member = ""
+        st.session_state.deal_paid = 0.0
+        st.session_state.deal_message = ("success", f"Deal {inv_no} save ho gayi!")
+
     with st.container(border=True):
         c1, c2 = st.columns(2)
         client = c1.text_input("Client Name/Hospital", key="deal_client")
@@ -219,22 +310,9 @@ with tab2:
         paid = st.number_input("Payment sent by Client", min_value=0.0, format="%g", key="deal_paid")
 
         # ---- 1) Add Product button: properly appends the item and clears item fields ----
-        if st.button("➕ Add to List", use_container_width=True):
-            if item_name.strip():
-                st.session_state.temp_items.append({
-                    'equipment': item_name, 'specs': item_specs, 'quantity': item_qty,
-                    'unit_price': item_price, 'unit_actual_cost': item_cost,
-                    'line_total': item_qty * item_price, 'line_actual_cost': item_qty * item_cost
-                })
-                # reset only the product fields so client/team/paid stay filled
-                st.session_state.item_name_input = ""
-                st.session_state.item_specs_input = ""
-                st.session_state.item_qty_input = 1
-                st.session_state.item_price_input = 0.0
-                st.session_state.item_cost_input = 0.0
-                st.rerun()
-            else:
-                st.warning("Equipment Name likhna zaroori hai.")
+        st.button("➕ Add to List", use_container_width=True, on_click=_add_item_cb)
+        if st.session_state.get("add_item_warning"):
+            st.warning("Equipment Name likhna zaroori hai.")
 
         # show what's queued so far, so you know what will go into the invoice
         if st.session_state.temp_items:
@@ -244,66 +322,16 @@ with tab2:
                 ic1.write(item['equipment']); ic2.write(item['specs'])
                 ic3.write(f"{item['quantity']:g}"); ic4.write(f"{item['unit_price']:.0f}")
                 ic5.write(f"{item['line_total']:.0f}")
-                if ic6.button("🗑️", key=f"del_item_{idx}"):
-                    st.session_state.temp_items.pop(idx)
-                    st.rerun()
+                ic6.button("🗑️", key=f"del_item_{idx}", on_click=_remove_item_cb, args=(idx,))
             st.caption(f"Running Total: Rs {sum(i['line_total'] for i in st.session_state.temp_items):,.0f}")
 
     with st.form("deal_form", clear_on_submit=True):
-        submitted = st.form_submit_button("✅ Log Deal", use_container_width=True)
-        if submitted:
-            # ---- 2) Without at least one added product, the deal can't be logged ----
-            if not st.session_state.temp_items:
-                st.error("Pehle kam az kam ek product add karein.")
-            elif not client.strip():
-                st.error("Client Name zaroori hai.")
-            else:
-                items = st.session_state.temp_items
-                close_deal = sum(i['line_total'] for i in items)
-                actual_cost = sum(i['line_actual_cost'] for i in items)
-                remaining = close_deal - paid
-                profit = close_deal - actual_cost
-                status = "Paid" if remaining <= 0 else "Pending"
-                inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        st.form_submit_button("✅ Log Deal", use_container_width=True, on_click=_log_deal_cb)
 
-                # ---- 5) 1 item -> real equipment/specs. >1 items -> comma separated
-                # equipment names, specs column just says "Multiple Items" ----
-                if len(items) == 1:
-                    equipment_display = items[0]['equipment']
-                    specs_display = items[0]['specs']
-                else:
-                    equipment_display = ", ".join(i['equipment'] for i in items)
-                    specs_display = "Multiple Items"
-
-                conn = sqlite3.connect('enterprise.db')
-                cur = conn.cursor()
-                # ---- 4) one deal = one row = one invoice_no, with totals summed across
-                # all items (close_deal, actual_cost, paid, remaining, profit) ----
-                cur.execute("""INSERT INTO business_deals
-                    (date, invoice_no, client, equipment, specs, close_deal, actual_cost,
-                     paid, remaining, profit, team_member, status)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (datetime.now().strftime("%Y-%m-%d"), inv_no, client, equipment_display, specs_display,
-                     close_deal, actual_cost, paid, remaining, profit, team_member, status))
-                deal_id = cur.lastrowid
-
-                for item in items:
-                    cur.execute("""INSERT INTO deal_items
-                        (deal_id, equipment, specs, quantity, unit_price, unit_actual_cost, line_total, line_actual_cost)
-                        VALUES (?,?,?,?,?,?,?,?)""",
-                        (deal_id, item['equipment'], item['specs'], item['quantity'], item['unit_price'],
-                         item['unit_actual_cost'], item['line_total'], item['line_actual_cost']))
-
-                conn.commit()
-                st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
-                conn.close()
-
-                st.session_state.temp_items = []
-                st.session_state.deal_client = ""
-                st.session_state.deal_team_member = ""
-                st.session_state.deal_paid = 0.0
-                st.success(f"Deal {inv_no} save ho gayi!")
-                st.rerun()
+    if st.session_state.get("deal_message"):
+        level, text = st.session_state.deal_message
+        getattr(st, level)(text)
+        st.session_state.deal_message = None
 
     st.divider()
     st.subheader("📋 Records")
