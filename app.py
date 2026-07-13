@@ -26,12 +26,10 @@ class InvoicePDF(FPDF):
 
 def _draw_item_table_header(pdf, y):
     pdf.set_xy(25, y)
-    pdf.set_font("Arial", "B", 9); pdf.set_fill_color(0, 153, 224)  # company light blue
-    pdf.set_text_color(255, 255, 255)  # white text for contrast
+    pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
     pdf.cell(15, 8, "SR #", 1, 0, "C", True); pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
     pdf.cell(40, 8, "SPECS", 1, 0, "C", True); pdf.cell(15, 8, "QTY", 1, 0, "C", True)
     pdf.cell(25, 8, "PRICE", 1, 0, "C", True); pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
-    pdf.set_text_color(0, 0, 0)  # back to black for the data rows that follow
 
 
 def generate_pdf(deal, items_df):
@@ -120,11 +118,8 @@ def generate_pdf(deal, items_df):
 
     # Grand Total
     pdf.set_x(125); pdf.set_font("Arial", "B", 10)
-    pdf.set_fill_color(0, 51, 102)     # company dark blue for the total row
-    pdf.set_text_color(255, 255, 255)
     pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
     pdf.cell(25, 8, f"{deal['close_deal']:.0f}", 1, 1, "C", True)
-    pdf.set_text_color(0, 0, 0)
 
     # --- Footer Section Layout (Regards / Account Details / Stamp) ---
     # Position is dynamic, right below the table, instead of a fixed y=222, since the
