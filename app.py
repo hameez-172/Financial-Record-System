@@ -191,10 +191,14 @@ with tab2:
     st.title("💼 Business Deals")
     st.caption("Ek deal mein multiple products add karein — sab ek hi invoice mein save aur print honge.")
 
-    # ---------------- ADD PRODUCT SECTION ----------------
+    # ---------------- SINGLE CONTAINER ----------------
     with st.container(border=True):
+
+        # ---------- ADD PRODUCT ----------
         st.subheader("➕ Add Product")
+
         c1, c2, c3, c4, c5 = st.columns([2, 2, 1, 1.2, 1.2])
+
         item_name = c1.text_input("Equipment Name", key="item_name")
         item_specs = c2.text_input("Specs", key="item_specs")
         item_qty = c3.number_input("Qty", min_value=1.0, format="%g", key="item_qty")
@@ -202,130 +206,154 @@ with tab2:
         item_cost = c5.number_input("Per Unit Actual Cost", min_value=0.0, format="%g", key="item_cost")
 
         add_col, _ = st.columns([1, 3])
+
         if add_col.button("➕ Add to List", use_container_width=True):
             if item_name.strip():
                 st.session_state.temp_items.append({
-                    'equipment': item_name,
-                    'specs': item_specs,
-                    'quantity': item_qty,
-                    'unit_price': item_price,
-                    'unit_actual_cost': item_cost,
-                    'line_total': item_qty * item_price,
-                    'line_actual_cost': item_qty * item_cost,
+                    "equipment": item_name,
+                    "specs": item_specs,
+                    "quantity": item_qty,
+                    "unit_price": item_price,
+                    "unit_actual_cost": item_cost,
+                    "line_total": item_qty * item_price,
+                    "line_actual_cost": item_qty * item_cost,
                 })
                 st.rerun()
             else:
                 st.warning("Equipment Name likhna zaroori hai.")
 
         if st.session_state.temp_items:
+
             st.divider()
-            st.markdown("**Added Items:**")
-            hc1, hc2, hc3, hc4, hc5, hc6 = st.columns([2, 2, 1, 1, 1, 0.6])
-            hc1.markdown("**Equipment**"); hc2.markdown("**Specs**"); hc3.markdown("**Qty**")
-            hc4.markdown("**Price**"); hc5.markdown("**Total**")
+            st.markdown("### Added Products")
+
+            hc1, hc2, hc3, hc4, hc5, hc6 = st.columns([2,2,1,1,1,0.6])
+
+            hc1.markdown("**Equipment**")
+            hc2.markdown("**Specs**")
+            hc3.markdown("**Qty**")
+            hc4.markdown("**Price**")
+            hc5.markdown("**Total**")
 
             for idx, item in enumerate(st.session_state.temp_items):
-                cc1, cc2, cc3, cc4, cc5, cc6 = st.columns([2, 2, 1, 1, 1, 0.6])
-                cc1.write(item['equipment']); cc2.write(item['specs'])
-                cc3.write(f"{item['quantity']:g}"); cc4.write(f"{item['unit_price']:.0f}")
+
+                cc1, cc2, cc3, cc4, cc5, cc6 = st.columns([2,2,1,1,1,0.6])
+
+                cc1.write(item["equipment"])
+                cc2.write(item["specs"])
+                cc3.write(f"{item['quantity']:g}")
+                cc4.write(f"{item['unit_price']:.0f}")
                 cc5.write(f"{item['line_total']:.0f}")
+
                 if cc6.button("🗑️", key=f"del_{idx}"):
                     st.session_state.temp_items.pop(idx)
                     st.rerun()
 
-            running_total = sum(i['line_total'] for i in st.session_state.temp_items)
-            st.info(f"**Running Total: Rs {running_total:,.0f}**")
+            running_total = sum(i["line_total"] for i in st.session_state.temp_items)
+
+            st.info(f"Running Total: Rs {running_total:,.0f}")
+
         else:
             st.caption("Abhi koi item add nahi hua.")
 
-    st.write("")
+        # ---------- DEAL DETAILS ----------
+        st.divider()
 
-# ---------------- DEAL DETAILS / SUBMIT SECTION ----------------
+        st.subheader("🧾 Deal Details")
 
-st.subheader("🧾 Deal Details")
+        with st.form("biz_form", clear_on_submit=True):
 
-with st.form("biz_form", clear_on_submit=True):
-    c1, c2 = st.columns(2)
-    client = c1.text_input("Client Name/Hospital")
-    team_member = c2.text_input("Team Member (Optional)")
+            c1, c2 = st.columns(2)
 
-    c3, c4 = st.columns(2)
-    paid = c3.number_input(
-        "Payment sent by Client",
-        min_value=0.0,
-        format="%g"
-    )
+            client = c1.text_input("Client Name/Hospital")
+            team_member = c2.text_input("Team Member (Optional)")
 
-    submitted = st.form_submit_button(
-        "✅ Log Deal",
-        use_container_width=True
-    )
+            c3, c4 = st.columns(2)
 
-    if submitted:
-        if not st.session_state.temp_items:
-            st.error("Pehle kam az kam ek product add karein.")
-        elif not client.strip():
-            st.error("Client Name zaroori hai.")
-        else:
-            close_deal = sum(i["line_total"] for i in st.session_state.temp_items)
-            actual_cost = sum(i["line_actual_cost"] for i in st.session_state.temp_items)
-            remaining = close_deal - paid
-            profit = close_deal - actual_cost
-            status = "Paid" if remaining <= 0 else "Pending"
-            inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-
-            conn = sqlite3.connect("enterprise.db")
-            cur = conn.cursor()
-
-            cur.execute("""
-                INSERT INTO business_deals
-                (date, invoice_no, client, close_deal, actual_cost,
-                 paid, remaining, profit, team_member, status)
-                VALUES (?,?,?,?,?,?,?,?,?,?)
-            """, (
-                datetime.now().strftime("%Y-%m-%d"),
-                inv_no,
-                client,
-                close_deal,
-                actual_cost,
-                paid,
-                remaining,
-                profit,
-                team_member,
-                status
-            ))
-
-            deal_id = cur.lastrowid
-
-            for item in st.session_state.temp_items:
-                cur.execute("""
-                    INSERT INTO deal_items
-                    (deal_id, equipment, specs, quantity,
-                     unit_price, unit_actual_cost,
-                     line_total, line_actual_cost)
-                    VALUES (?,?,?,?,?,?,?,?)
-                """, (
-                    deal_id,
-                    item["equipment"],
-                    item["specs"],
-                    item["quantity"],
-                    item["unit_price"],
-                    item["unit_actual_cost"],
-                    item["line_total"],
-                    item["line_actual_cost"]
-                ))
-
-            conn.commit()
-
-            st.session_state.business_df = pd.read_sql(
-                "SELECT * FROM business_deals",
-                conn
+            paid = c3.number_input(
+                "Payment sent by Client",
+                min_value=0.0,
+                format="%g"
             )
 
-            conn.close()
-            st.session_state.temp_items = []
+            submitted = st.form_submit_button(
+                "✅ Log Deal",
+                use_container_width=True
+            )
 
-            st.success(f"Deal {inv_no} save ho gayi!")
-            st.rerun()
+            if submitted:
 
-st.divider()
+                if not st.session_state.temp_items:
+                    st.error("Pehle kam az kam ek product add karein.")
+
+                elif not client.strip():
+                    st.error("Client Name zaroori hai.")
+
+                else:
+
+                    close_deal = sum(i["line_total"] for i in st.session_state.temp_items)
+                    actual_cost = sum(i["line_actual_cost"] for i in st.session_state.temp_items)
+
+                    remaining = close_deal - paid
+                    profit = close_deal - actual_cost
+
+                    status = "Paid" if remaining <= 0 else "Pending"
+
+                    inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+                    conn = sqlite3.connect("enterprise.db")
+                    cur = conn.cursor()
+
+                    cur.execute("""
+                        INSERT INTO business_deals
+                        (date, invoice_no, client, close_deal, actual_cost,
+                        paid, remaining, profit, team_member, status)
+                        VALUES (?,?,?,?,?,?,?,?,?,?)
+                    """, (
+                        datetime.now().strftime("%Y-%m-%d"),
+                        inv_no,
+                        client,
+                        close_deal,
+                        actual_cost,
+                        paid,
+                        remaining,
+                        profit,
+                        team_member,
+                        status
+                    ))
+
+                    deal_id = cur.lastrowid
+
+                    for item in st.session_state.temp_items:
+
+                        cur.execute("""
+                            INSERT INTO deal_items
+                            (deal_id, equipment, specs, quantity,
+                            unit_price, unit_actual_cost,
+                            line_total, line_actual_cost)
+                            VALUES (?,?,?,?,?,?,?,?)
+                        """, (
+                            deal_id,
+                            item["equipment"],
+                            item["specs"],
+                            item["quantity"],
+                            item["unit_price"],
+                            item["unit_actual_cost"],
+                            item["line_total"],
+                            item["line_actual_cost"]
+                        ))
+
+                    conn.commit()
+
+                    st.session_state.business_df = pd.read_sql(
+                        "SELECT * FROM business_deals",
+                        conn
+                    )
+
+                    conn.close()
+
+                    st.session_state.temp_items = []
+
+                    st.success(f"Deal {inv_no} save ho gayi!")
+
+                    st.rerun()
