@@ -186,7 +186,6 @@ with tab2:
 
     # ---------------- ADD PRODUCT SECTION ----------------
     with st.container(border=True):
-        st.subheader("➕ Add Product")
         c1, c2, c3, c4, c5 = st.columns([2, 2, 1, 1.2, 1.2])
         item_name = c1.text_input("Equipment Name", key="item_name")
         item_specs = c2.text_input("Specs", key="item_specs")
@@ -231,11 +230,10 @@ with tab2:
         else:
             st.caption("Abhi koi item add nahi hua.")
 
-    st.write("")
+    
 
     # ---------------- DEAL DETAILS / SUBMIT SECTION ----------------
-    with st.container(border=True):
-        st.subheader("🧾 Deal Details")
+  
         with st.form("biz_form", clear_on_submit=True):
             c1, c2 = st.columns(2)
             client = c1.text_input("Client Name/Hospital")
