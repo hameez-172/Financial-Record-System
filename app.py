@@ -26,10 +26,12 @@ class InvoicePDF(FPDF):
 
 def _draw_item_table_header(pdf, y):
     pdf.set_xy(25, y)
-    pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
+    pdf.set_font("Arial", "B", 9); pdf.set_fill_color(0, 153, 224)  # company light blue
+    pdf.set_text_color(255, 255, 255)  # white text for contrast
     pdf.cell(15, 8, "SR #", 1, 0, "C", True); pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
     pdf.cell(40, 8, "SPECS", 1, 0, "C", True); pdf.cell(15, 8, "QTY", 1, 0, "C", True)
     pdf.cell(25, 8, "PRICE", 1, 0, "C", True); pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
+    pdf.set_text_color(0, 0, 0)  # back to black for the data rows that follow
 
 
 def generate_pdf(deal, items_df):
@@ -118,43 +120,52 @@ def generate_pdf(deal, items_df):
 
     # Grand Total
     pdf.set_x(125); pdf.set_font("Arial", "B", 10)
+    pdf.set_fill_color(0, 51, 102)     # company dark blue for the total row
+    pdf.set_text_color(255, 255, 255)
     pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
     pdf.cell(25, 8, f"{deal['close_deal']:.0f}", 1, 1, "C", True)
+    pdf.set_text_color(0, 0, 0)
 
     # --- Footer Section Layout (Regards / Account Details / Stamp) ---
-    # --- Footer Section Layout ---
-    # Footer se thoda upar line draw karna (y=222)
-    pdf.set_draw_color(200, 200, 200)
-    pdf.line(10, 222, 200, 222) 
+    # Position is dynamic, right below the table, instead of a fixed y=222, since the
+    # table can now be taller with multiple items. Auto page-break if it doesn't fit.
+    y_after_table = pdf.get_y()
+    footer_block_y = y_after_table + 15
+    if footer_block_y + 45 > 255:
+        pdf.add_page()
+        footer_block_y = 50
 
-    # --- Regards & Account Details (Left side, y=225) ---
-    pdf.set_xy(15, 225)
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(10, footer_block_y, 200, footer_block_y)
+
+    # --- Regards & Account Details (Left side) ---
+    pdf.set_xy(15, footer_block_y + 3)
     pdf.set_font("Arial", "I", 9)
+    pdf.set_text_color(0, 0, 0)
     pdf.cell(90, 5, "Regards,", ln=1)
-    
+
     pdf.set_x(15)
     pdf.set_font("Arial", "B", 9)
     pdf.cell(90, 5, "Badar Diagnostics & Medical Equipment, Lahore", ln=1)
-    
+
     pdf.set_x(15)
     pdf.set_font("Arial", "B", 9)
-    pdf.set_text_color(0, 51, 102) # Dark Blue
+    pdf.set_text_color(0, 51, 102)  # Dark Blue
     pdf.cell(90, 5, "Account Details:", ln=1)
-    
+
     pdf.set_x(15)
     pdf.set_font("Arial", "", 8)
-    pdf.set_text_color(0, 0, 0) # Black
+    pdf.set_text_color(0, 0, 0)  # Black
     pdf.multi_cell(90, 4, "Badar Diagnostics & Medical Equipment\nFaysal Bank\n0155007000005585")
 
-    # --- Stamp (Right side, y=225) ---
+    # --- Stamp (Right side) ---
     if os.path.exists("stamp.jpg"):
-        # Stamp ko text ke barabar set kiya hai
-        pdf.image("stamp.jpg", x=140, y=225, w=35)
-    
-    # Save the file
-    file_path = f"Invoice_{row['invoice_no']}.pdf"
+        pdf.image("stamp.jpg", x=140, y=footer_block_y + 3, w=35)
+
+    file_path = f"Invoice_{deal['invoice_no']}.pdf"
     pdf.output(file_path)
-    return file_path   
+    return file_path
+
 
 # --- APP SETUP ---
 def init_db():
