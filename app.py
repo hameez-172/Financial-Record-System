@@ -233,17 +233,21 @@ with tab2:
     
 
     # ---------------- DEAL DETAILS / SUBMIT SECTION ----------------
-  
+c1, c2 = st.columns(2)
+client = c1.text_input("Client Name/Hospital")
+team_member = c2.text_input("Team Member (Optional)")
 
-            c1, c2 = st.columns(2)
-            client = c1.text_input("Client Name/Hospital")
-            team_member = c2.text_input("Team Member (Optional)")
-            c3, c4 = st.columns(2)
-            paid = c3.number_input("Payment sent by Client", min_value=0.0, format="%g")
+c3, c4 = st.columns(2)
+paid = c3.number_input(
+    "Payment sent by Client",
+    min_value=0.0,
+    format="%g"
+)
 
-            submitted = st.form_submit_button("✅ Log Deal", use_container_width=True)
-
-            if submitted:
+submitted = st.button(
+    "✅ Log Deal",
+    use_container_width=True
+)            if submitted:
                 if not st.session_state.temp_items:
                     st.error("Pehle kam az kam ek product add karein.")
                 elif not client.strip():
