@@ -287,7 +287,7 @@ with tab2:
                     st.session_state.temp_items = []
                     st.success(f"Deal {inv_no} save ho gayi!")
                     st.rerun()
-    st.divider()
+        st.divider()
     
     st.subheader("📋 Records")
     st.dataframe(st.session_state.business_df, use_container_width=True, hide_index=True)
