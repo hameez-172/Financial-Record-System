@@ -194,9 +194,9 @@ with tab2:
         item_specs = c4.text_input("Specs")
         
         c5, c6, c7 = st.columns(3)
-        item_qty = c5.number_input("Qty", min_value=1.0, format="%g")
-        item_price = c6.number_input("Unit Price", min_value=0, format="%g")
-        item_cost = c7.number_input("Actual Cost", min_value=0, format="%g")
+        item_qty = c5.number_input("Qty", min_value=1, format="%g")
+        item_price = c6.number_input("Unit Price", min_value=0.0, format="%g")
+        item_cost = c7.number_input("Actual Cost", min_value=0.0, format="%g")
         
         paid = st.number_input("Payment sent by Client", min_value=0.0, format="%g")
 
