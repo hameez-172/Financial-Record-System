@@ -182,21 +182,25 @@ tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "�
 
 with tab2:
     st.title("💼 Business Deals")
-    st.caption("Ek deal mein multiple products add karein — sab ek hi invoice mein save honge.")
-
-    # ---------------- SAARE INPUTS EK CONTAINER MEIN ----------------
+    
+    # ---------------- SAARE INPUTS EK HI CONTAINER MEIN ----------------
     with st.container(border=True):
-        st.subheader("Product Details")
-        c1, c2 = st.columns([2, 2])
-        item_name = c1.text_input("Equipment Name", key="item_name")
-        item_specs = c2.text_input("Specs", key="item_specs")
+        c1, c2 = st.columns(2)
+        client = c1.text_input("Client Name/Hospital")
+        team_member = c2.text_input("Team Member (Optional)")
         
-        c3, c4, c5 = st.columns([1, 1, 1])
-        item_qty = c3.number_input("Qty", min_value=1.0, format="%g", key="item_qty")
-        item_price = c4.number_input("Unit Price", min_value=0.0, format="%g", key="item_price")
-        item_cost = c5.number_input("Actual Cost", min_value=0.0, format="%g", key="item_cost")
+        c3, c4 = st.columns(2)
+        item_name = c3.text_input("Equipment Name")
+        item_specs = c4.text_input("Specs")
+        
+        c5, c6, c7 = st.columns(3)
+        item_qty = c5.number_input("Qty", min_value=1.0, format="%g")
+        item_price = c6.number_input("Unit Price", min_value=0.0, format="%g")
+        item_cost = c7.number_input("Actual Cost", min_value=0.0, format="%g")
+        
+        paid = st.number_input("Payment sent by Client", min_value=0.0, format="%g")
 
-    # ---------------- ADD BUTTON CONTAINER KE BAHAR ----------------
+    # ---------------- BUTTONS ----------------
     if st.button("➕ Add to List", use_container_width=True):
         if item_name.strip():
             st.session_state.temp_items.append({
@@ -212,32 +216,8 @@ with tab2:
         else:
             st.warning("Equipment Name likhna zaroori hai.")
 
-    # ---------------- ADDED ITEMS LIST ----------------
-    if st.session_state.temp_items:
-        st.markdown("**Added Items:**")
-        for idx, item in enumerate(st.session_state.temp_items):
-            cols = st.columns([2, 2, 1, 1, 1, 0.5])
-            cols[0].write(item['equipment'])
-            cols[1].write(item['specs'])
-            cols[2].write(f"{item['quantity']:g}")
-            cols[3].write(f"{item['unit_price']:.0f}")
-            cols[4].write(f"{item['line_total']:.0f}")
-            if cols[5].button("🗑️", key=f"del_{idx}"):
-                st.session_state.temp_items.pop(idx)
-                st.rerun()
-        
-        running_total = sum(i['line_total'] for i in st.session_state.temp_items)
-        st.info(f"**Running Total: Rs {running_total:,.0f}**")
-
-    st.divider()
-
-    # ---------------- LOG DEAL FORM (BUTTON KE UPAR) ----------------
+    # ---------------- LOG DEAL FORM ----------------
     with st.form("deal_form", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        client = c1.text_input("Client Name/Hospital")
-        team_member = c2.text_input("Team Member (Optional)")
-        paid = st.number_input("Payment sent by Client", min_value=0.0, format="%g")
-        
         submitted = st.form_submit_button("✅ Log Deal", use_container_width=True)
         
         if submitted:
@@ -246,7 +226,7 @@ with tab2:
             elif not client.strip():
                 st.error("Client Name zaroori hai.")
             else:
-                # DB Logic yahan continue karein
+                # Logic wahi rahegi jo pehle thi
                 close_deal = sum(i['line_total'] for i in st.session_state.temp_items)
                 actual_cost = sum(i['line_actual_cost'] for i in st.session_state.temp_items)
                 remaining = close_deal - paid
@@ -272,7 +252,3 @@ with tab2:
                 st.session_state.temp_items = []
                 st.success(f"Deal {inv_no} save ho gayi!")
                 st.rerun()
-
-    # ---------------- RECORDS & PDF ----------------
-    st.subheader("📋 Records")
-    st.dataframe(st.session_state.business_df, use_container_width=True, hide_index=True)
