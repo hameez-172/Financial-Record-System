@@ -26,83 +26,49 @@ class InvoicePDF(FPDF):
 
 def _draw_item_table_header(pdf, y):
     pdf.set_xy(25, y)
+    pdf.set_draw_color(0, 153, 224) # Blue Border
     pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
     pdf.cell(15, 8, "SR #", 1, 0, "C", True); pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
     pdf.cell(40, 8, "SPECS", 1, 0, "C", True); pdf.cell(15, 8, "QTY", 1, 0, "C", True)
     pdf.cell(25, 8, "PRICE", 1, 0, "C", True); pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
 
-
 def generate_pdf(deal, items_df):
-    """deal = single row from business_deals, items_df = every product belonging to that deal.
-    Design (No./Date, To:, table, Grand Total, Regards/Account Details/Stamp) is the exact
-    quotation/invoice design provided. Only change: the item table now loops over multiple
-    products, and the Regards/Account/Stamp block sits dynamically right below the table
-    (with auto page-break) instead of a fixed y, since table height now varies with item count."""
     pdf = InvoicePDF()
     pdf.add_page()
     blue_color = (0, 153, 224)
+    pdf.set_draw_color(*blue_color) # Default draw color set to blue
 
-    # 1. Invoice No. Section
+    # 1. Invoice No & Date
     pdf.set_xy(15, 45)
-    pdf.set_font("Arial", "B", 12)
-    pdf.set_text_color(*blue_color)
-    pdf.cell(10, 5, "No.")
-
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", "", 12)
+    pdf.set_font("Arial", "B", 12); pdf.set_text_color(*blue_color)
+    pdf.cell(10, 5, "No."); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", "", 12)
     inv_text = f"{deal['invoice_no']}"
-    pdf.set_xy(25, 45)
-    pdf.cell(pdf.get_string_width(inv_text), 5, inv_text)
-
-    pdf.set_draw_color(*blue_color)
+    pdf.set_xy(25, 45); pdf.cell(pdf.get_string_width(inv_text), 5, inv_text)
     pdf.line(25, 50, 25 + pdf.get_string_width(inv_text), 50)
 
-    # 2. Date Section (Gap ke sath)
-    date_label = "Date"
+    pdf.set_xy(140, 45); pdf.set_font("Arial", "B", 12); pdf.set_text_color(*blue_color)
+    pdf.cell(10, 5, "Date"); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", "", 12)
     date_val = f"{deal['date']}"
+    pdf.set_xy(155, 45); pdf.cell(pdf.get_string_width(date_val), 5, date_val)
+    pdf.line(155, 50, 155 + pdf.get_string_width(date_val), 50)
 
-    pdf.set_xy(140, 45)
-    pdf.set_font("Arial", "B", 12)
-    pdf.set_text_color(*blue_color)
-    pdf.cell(10, 5, date_label)
+    # 2. Client Name
+    pdf.set_text_color(0, 0, 0); pdf.set_xy(15, 58); pdf.set_font("Arial", "B", 12)
+    pdf.cell(10, 6, "To: "); pdf.set_font("Arial", "", 12)
+    pdf.cell(0, 6, f"{deal['client']}")
+    pdf.line(25, 64, 100, 64)
 
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", "", 12)
-    date_x = 140 + pdf.get_string_width(date_label) + 5
-    pdf.set_xy(date_x, 45)
-    pdf.cell(pdf.get_string_width(date_val), 5, date_val)
-
-    pdf.line(date_x, 50, date_x + pdf.get_string_width(date_val), 50)
-
-    # 3. Client Name (Underline ke sath)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_xy(15, 58)
-    pdf.set_font("Arial", "B", 12)
-    client_label = "To: "
-    client_name = f"{deal['client']}"
-
-    pdf.cell(pdf.get_string_width(client_label), 6, client_label)
-    pdf.set_font("Arial", "", 12)
-    pdf.cell(pdf.get_string_width(client_name), 6, client_name)
-
-    pdf.set_draw_color(0, 0, 0)
-    pdf.line(15 + pdf.get_string_width(client_label), 64,
-             15 + pdf.get_string_width(client_label) + pdf.get_string_width(client_name), 64)
-
-    # Title
-    pdf.set_xy(0, 70)
-    pdf.set_font("Arial", "B", 16)
-    pdf.cell(210, 8, "INVOICE", align="C")
-
-    # Table Header + multi-item rows (auto page-break, header repeats on new page)
+    # 3. Table
+    pdf.set_xy(0, 70); pdf.set_font("Arial", "B", 16); pdf.cell(210, 8, "INVOICE", align="C")
+    
     _draw_item_table_header(pdf, 85)
     pdf.set_font("Arial", "", 9)
+    pdf.set_draw_color(0, 153, 224) # Blue border for rows
 
     for i, item in enumerate(items_df.itertuples(), start=1):
         if pdf.get_y() + 8 > 250:
-            pdf.add_page()
-            _draw_item_table_header(pdf, 45)
-            pdf.set_font("Arial", "", 9)
+            pdf.add_page(); _draw_item_table_header(pdf, 45)
+            pdf.set_font("Arial", "", 9); pdf.set_draw_color(0, 153, 224)
 
         pdf.set_x(25)
         pdf.cell(15, 8, str(i), 1, 0, "C")
@@ -112,15 +78,10 @@ def generate_pdf(deal, items_df):
         pdf.cell(25, 8, f"{item.unit_price:.0f}", 1, 0, "C")
         pdf.cell(25, 8, f"{item.line_total:.0f}", 1, 1, "C")
 
-    if pdf.get_y() + 16 > 250:
-        pdf.add_page()
-        pdf.set_y(45)
-
     # Grand Total
     pdf.set_x(125); pdf.set_font("Arial", "B", 10)
     pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
     pdf.cell(25, 8, f"{deal['close_deal']:.0f}", 1, 1, "C", True)
-
     # --- Footer Section Layout (Regards / Account Details / Stamp) ---
     # Footer se thoda upar line draw karna (y=222)
     pdf.set_draw_color(200, 200, 200)
