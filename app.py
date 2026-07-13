@@ -234,7 +234,7 @@ with tab2:
 
     # ---------------- DEAL DETAILS / SUBMIT SECTION ----------------
   
-        with st.form("biz_form", clear_on_submit=True):
+
             c1, c2 = st.columns(2)
             client = c1.text_input("Client Name/Hospital")
             team_member = c2.text_input("Team Member (Optional)")
