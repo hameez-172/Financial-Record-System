@@ -238,7 +238,7 @@ with tab2:
         else:
             st.caption("Abhi koi item add nahi hua.")
 
-    st.write("")
+st.write("")
 
 # ---------------- DEAL DETAILS / SUBMIT SECTION ----------------
 
@@ -325,4 +325,7 @@ with st.form("biz_form", clear_on_submit=True):
             conn.close()
             st.session_state.temp_items = []
 
-            st.success(f"Deal {i
+            st.success(f"Deal {inv_no} save ho gayi!")
+            st.rerun()
+
+st.divider()
