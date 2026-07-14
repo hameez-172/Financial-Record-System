@@ -147,18 +147,30 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
             pdf.cell(25, 8, f"{item.line_total:.0f}", 1, 1, "C")
 
     # Grand Total (skipped entirely for Delivery Challan since there's no pricing)
+    # Point 5: if the item table ran all the way down to the bottom, make sure the
+    # Grand Total row itself still has room -- otherwise start a fresh page first
+    # instead of letting it collide with the footer band.
+    if pdf.get_y() + 20 > 250:
+        pdf.add_page()
+
     if not is_challan:
         pdf.set_x(125); pdf.set_font("Arial", "B", 10)
         pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
         pdf.cell(25, 8, f"{deal['close_deal']:.0f}", 1, 1, "C", True)
 
     # --- Footer Section Layout (Regards / Account Details / Stamp) ---
-    # Invoice keeps the EXACT original fixed layout (y=222 / y=225), untouched.
-    # Quotation only: Terms & Conditions is printed right after the table, and the
-    # divider/Regards/Account/Stamp block shifts down to make room for it.
+    # Point 2: Quotation's account details/stamp now sit at the SAME fixed level as
+    # Invoice / Delivery Challan (just above the footer band), instead of floating
+    # right after a short Terms & Conditions block.
+    # Point 5: if the Terms text (or a long item table) would run down into that
+    # fixed zone, jump to a new page first instead of overlapping the logo/account
+    # details/stamp.
     show_terms = doc_type == "Quotation" and terms_text and terms_text.strip()
+    divider_y = 222  # fixed position, same level as Invoice / Delivery Challan
 
     if show_terms:
+        if pdf.get_y() + 10 > 195:
+            pdf.add_page()
         terms_y = pdf.get_y() + 10
         pdf.set_xy(15, terms_y)
         pdf.set_font("Arial", "B", 10)
@@ -167,12 +179,12 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
         pdf.set_x(15)
         pdf.set_font("Arial", "", 9)
         pdf.multi_cell(90, 4, terms_text)
-        divider_y = pdf.get_y() + 8
-        if divider_y + 40 > 255:
-            pdf.add_page()
-            divider_y = 45
-    else:
-        divider_y = 222  # original fixed position, unchanged for Invoice / Delivery Challan
+
+    # Safety net: whatever was just printed (table / grand total / terms) must not
+    # run into the fixed divider_y zone -- if it does, move to a new page so the
+    # account details/stamp never overlap it.
+    if pdf.get_y() + 10 > divider_y:
+        pdf.add_page()
 
     content_y = divider_y + 3
 
@@ -243,7 +255,7 @@ def generate_sheet_pdf(df, headers, col_widths, title, filename_prefix, orientat
 
     row_h = 7
     y = table_y + 8
-    bottom_limit = pdf.h - 45  # leave room for the letterhead footer band
+    bottom_limit = pdf.h - 45  # leave room for the letterhead footer band (point 5)
 
     for _, row in df.iterrows():
         if y + row_h > bottom_limit:
@@ -265,6 +277,17 @@ def generate_sheet_pdf(df, headers, col_widths, title, filename_prefix, orientat
 
 def _df_to_csv_bytes(df):
     return df.to_csv(index=False).encode("utf-8-sig")
+
+
+def _apply_date_filter(df, date_col, start, end):
+    """Point 3: filter any sheet's dataframe down to a [start, end] date range
+    (inclusive), based on date_col. Rows whose date can't be parsed, or where no
+    date_col exists, are left as-is (untouched) rather than dropped."""
+    if df is None or df.empty or date_col not in df.columns or start is None or end is None:
+        return df
+    parsed = pd.to_datetime(df[date_col], errors='coerce')
+    mask = (parsed.dt.date >= start) & (parsed.dt.date <= end) | parsed.isna()
+    return df[mask]
 
 
 # --- APP SETUP ---
@@ -427,13 +450,26 @@ with tab2:
         # NOTE: `edited` must be the DataFrame RETURNED by st.data_editor(), not
         # st.session_state[key] — for data_editor, session_state[key] only holds
         # a raw {edited_rows, added_rows, deleted_rows} dict, not a merged DataFrame.
+        #
+        # Point 1: Records / Credit / Debit sheets are linked (Credit/Debit are
+        # derived live from st.session_state.business_df). If the user directly
+        # edits "remaining" down to 0 (instead of editing "paid"), that edit is
+        # now honored — "paid" is back-derived from it — so the row's status
+        # flips to "Paid" and it shows correctly (with remaining = 0) wherever
+        # Credit/Debit sheets pull from this table.
         conn = sqlite3.connect('enterprise.db')
         cur = conn.cursor()
         for row in edited.to_dict("records"):
             close_deal = row.get('close_deal', 0) or 0
             actual_cost = row.get('actual_cost', 0) or 0
             paid = row.get('paid', 0) or 0
-            remaining = close_deal - paid
+            remaining_edited = row.get('remaining', None)
+            if remaining_edited is not None and remaining_edited != (close_deal - paid):
+                # user edited "remaining" directly -> treat it as the source of truth
+                remaining = remaining_edited
+                paid = close_deal - remaining
+            else:
+                remaining = close_deal - paid
             profit = close_deal - actual_cost
             status = "Paid" if remaining <= 0 else "Pending"
             cur.execute("""UPDATE business_deals SET date=?, client=?, equipment=?, specs=?,
@@ -489,12 +525,22 @@ with tab2:
     st.divider()
     st.subheader("📋 Records")
 
+    # ---- Date filter for Records (point 3) ----
+    _all_dates = pd.to_datetime(st.session_state.business_df['date'], errors='coerce') \
+        if not st.session_state.business_df.empty else pd.Series([], dtype='datetime64[ns]')
+    _default_from = _all_dates.min().date() if not _all_dates.empty and _all_dates.notna().any() else date.today()
+    _default_to = _all_dates.max().date() if not _all_dates.empty and _all_dates.notna().any() else date.today()
+    rf1, rf2 = st.columns(2)
+    records_from = rf1.date_input("From", value=_default_from, key="records_filter_from")
+    records_to = rf2.date_input("To", value=_default_to, key="records_filter_to")
+
     # ---- Build the display dataframe in the fixed column order (point 6) ----
     display_df = st.session_state.business_df.copy()
     for col in RECORD_DISPLAY_COLUMNS:
         if col not in display_df.columns:
             display_df[col] = None
     display_df = display_df[RECORD_DISPLAY_COLUMNS]
+    display_df = _apply_date_filter(display_df, 'date', records_from, records_to)
 
     # ---- Editable records sheet (point 7) ----
     edited_records = st.data_editor(
@@ -668,7 +714,18 @@ with tab3:
 
     # ---------------- CREDIT SHEET ----------------
     with credit_tab:
+        # ---- Date filter for Credit Sheet (point 3) — applies to the deal-derived
+        # rows only, since manual entries don't carry a date field ----
+        _credit_dates = pd.to_datetime(deals['date'], errors='coerce') if not deals.empty else pd.Series([], dtype='datetime64[ns]')
+        _credit_default_from = _credit_dates.min().date() if not _credit_dates.empty and _credit_dates.notna().any() else date.today()
+        _credit_default_to = _credit_dates.max().date() if not _credit_dates.empty and _credit_dates.notna().any() else date.today()
+        cf1, cf2 = st.columns(2)
+        credit_from = cf1.date_input("From", value=_credit_default_from, key="credit_filter_from")
+        credit_to = cf2.date_input("To", value=_credit_default_to, key="credit_filter_to")
+        st.caption("Filter sirf deals wali entries par lagta hai — manual entries mein date nahi hoti, woh hamesha nazar aayengi.")
+
         auto_credit = deals[deals['remaining'] >= 0].copy() if not deals.empty else deals
+        auto_credit = _apply_date_filter(auto_credit, 'date', credit_from, credit_to)
         auto_credit_view = pd.DataFrame({
             "Client Name": auto_credit['client'],
             "Id No": "D-" + auto_credit['id'].astype(str),
@@ -724,7 +781,18 @@ with tab3:
 
     # ---------------- DEBIT SHEET ----------------
     with debit_tab:
+        # ---- Date filter for Debit Sheet (point 3) — applies to the deal-derived
+        # rows only, since manual entries don't carry a date field ----
+        _debit_dates = pd.to_datetime(deals['date'], errors='coerce') if not deals.empty else pd.Series([], dtype='datetime64[ns]')
+        _debit_default_from = _debit_dates.min().date() if not _debit_dates.empty and _debit_dates.notna().any() else date.today()
+        _debit_default_to = _debit_dates.max().date() if not _debit_dates.empty and _debit_dates.notna().any() else date.today()
+        df1, df2 = st.columns(2)
+        debit_from = df1.date_input("From", value=_debit_default_from, key="debit_filter_from")
+        debit_to = df2.date_input("To", value=_debit_default_to, key="debit_filter_to")
+        st.caption("Filter sirf deals wali entries par lagta hai — manual entries mein date nahi hoti, woh hamesha nazar aayengi.")
+
         auto_debit = deals[deals['remaining'] < 0].copy() if not deals.empty else deals
+        auto_debit = _apply_date_filter(auto_debit, 'date', debit_from, debit_to)
         auto_debit_view = pd.DataFrame({
             "Client Name": auto_debit['client'],
             "Id No": "D-" + auto_debit['id'].astype(str),
@@ -799,16 +867,32 @@ with tab3:
 
         st.divider()
         st.subheader("📋 Full Expense Sheet")
-        st.dataframe(st.session_state.expense_df.drop(columns=['id'], errors='ignore'),
-                     use_container_width=True, hide_index=True)
+
+        # ---- Date filter for Expense Sheet (point 3) ----
+        _exp_dates = pd.to_datetime(st.session_state.expense_df['date'], errors='coerce') \
+            if not st.session_state.expense_df.empty else pd.Series([], dtype='datetime64[ns]')
+        _exp_default_from = _exp_dates.min().date() if not _exp_dates.empty and _exp_dates.notna().any() else date.today()
+        _exp_default_to = _exp_dates.max().date() if not _exp_dates.empty and _exp_dates.notna().any() else date.today()
+        ef1, ef2 = st.columns(2)
+        expense_from = ef1.date_input("From", value=_exp_default_from, key="expense_filter_from")
+        expense_to = ef2.date_input("To", value=_exp_default_to, key="expense_filter_to")
+
+        filtered_expense_df = _apply_date_filter(
+            st.session_state.expense_df.drop(columns=['id'], errors='ignore'), 'date', expense_from, expense_to)
+
+        st.dataframe(filtered_expense_df, use_container_width=True, hide_index=True)
+
+        # ---- Total of the entries currently shown (point 4) ----
+        _expense_total = filtered_expense_df['amount'].sum() if not filtered_expense_df.empty else 0
+        st.metric("💵 Total Expense (selected range)", f"Rs {_expense_total:,.0f}")
 
         # ---- Expense Sheet CSV / PDF export (point 4: portrait, only 2 columns, "Expense Sheet" heading) ----
-        if not st.session_state.expense_df.empty:
+        if not filtered_expense_df.empty:
             eec1, eec2 = st.columns(2)
             eec1.download_button("⬇️ Expense Sheet CSV",
-                                  data=_df_to_csv_bytes(st.session_state.expense_df.drop(columns=['id'], errors='ignore')),
+                                  data=_df_to_csv_bytes(filtered_expense_df),
                                   file_name="expense_sheet.csv", mime="text/csv", key="expense_csv_btn")
-            expense_pdf_df = st.session_state.expense_df[['description', 'amount']].rename(
+            expense_pdf_df = filtered_expense_df[['description', 'amount']].rename(
                 columns={'description': 'Description', 'amount': 'Amount'})
             expense_pdf_path = generate_sheet_pdf(expense_pdf_df, EXPENSE_HEADERS, EXPENSE_COL_WIDTHS,
                                                    "Expense Sheet", "expense_sheet", orientation="P")
