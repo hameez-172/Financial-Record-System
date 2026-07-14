@@ -324,6 +324,32 @@ def init_db():
     conn.commit(); conn.close()
 
 
+def _clear_database_cb():
+    """DANGER: wipes every table (Records / Deal Items / Credit / Debit / Expenses)
+    and resets the AUTOINCREMENT counters, so the next entries start again from ID 1."""
+    conn = sqlite3.connect('enterprise.db')
+    cur = conn.cursor()
+    cur.execute("DELETE FROM business_deals")
+    cur.execute("DELETE FROM deal_items")
+    cur.execute("DELETE FROM credit_manual")
+    cur.execute("DELETE FROM debit_manual")
+    cur.execute("DELETE FROM daily_expenses")
+    cur.execute("DELETE FROM sqlite_sequence")  # reset autoincrement ids
+    conn.commit()
+
+    st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
+    st.session_state.credit_manual_df = pd.read_sql("SELECT * FROM credit_manual", conn)
+    st.session_state.debit_manual_df = pd.read_sql("SELECT * FROM debit_manual", conn)
+    st.session_state.expense_df = pd.read_sql("SELECT * FROM daily_expenses", conn)
+    conn.close()
+
+    st.session_state.temp_items = []
+    st.session_state.update_temp_items = []
+    st.session_state.editing_deal_id = None
+    st.session_state.confirm_clear_db = False
+    st.session_state.db_clear_message = ("success", "Poora database clear ho gaya! Sab records, sheets aur expenses delete ho gaye hain.")
+
+
 init_db()
 st.set_page_config(page_title="Hameez Enterprise Hub", layout="wide")
 
@@ -333,6 +359,12 @@ if 'business_df' not in st.session_state:
 
 if 'temp_items' not in st.session_state:
     st.session_state.temp_items = []
+
+if 'update_temp_items' not in st.session_state:
+    st.session_state.update_temp_items = []
+
+if 'editing_deal_id' not in st.session_state:
+    st.session_state.editing_deal_id = None
 
 if 'credit_manual_df' not in st.session_state or 'debit_manual_df' not in st.session_state:
     conn = sqlite3.connect('enterprise.db')
@@ -344,6 +376,22 @@ if 'expense_df' not in st.session_state:
     conn = sqlite3.connect('enterprise.db')
     st.session_state.expense_df = pd.read_sql("SELECT * FROM daily_expenses", conn)
     conn.close()
+
+# ---------------- SIDEBAR: DANGER ZONE (point 2 -- clear database) ----------------
+with st.sidebar:
+    st.header("⚙️ Settings")
+    with st.expander("🗑️ Danger Zone: Database Clear Karein"):
+        st.warning("Yeh action tamam Records, Deal Items, Credit/Debit Sheets aur Expenses hamesha "
+                   "ke liye delete kar dega. Yeh action wapas (undo) nahi ho sakta!")
+        st.checkbox("Haan, mujhe pata hai yeh permanent hai aur main sab kuch delete karna chahta/chahti hoon",
+                    key="confirm_clear_db")
+        if st.session_state.get("confirm_clear_db"):
+            st.button("🗑️ Poora Database Clear Karein", on_click=_clear_database_cb,
+                      key="clear_db_btn", type="primary", use_container_width=True)
+    if st.session_state.get("db_clear_message"):
+        level, text = st.session_state.db_clear_message
+        getattr(st, level)(text)
+        st.session_state.db_clear_message = None
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit/Expense Sheets", "📊 Analytics"])
 
@@ -457,6 +505,11 @@ with tab2:
         # now honored — "paid" is back-derived from it — so the row's status
         # flips to "Paid" and it shows correctly (with remaining = 0) wherever
         # Credit/Debit sheets pull from this table.
+        #
+        # Point 3: a small epsilon tolerance is used instead of exact float
+        # equality, so "remaining" edited down to 0 is always detected reliably
+        # (avoids floating point rounding making the comparison miss), and the
+        # status is then correctly flipped from Pending -> Paid.
         conn = sqlite3.connect('enterprise.db')
         cur = conn.cursor()
         for row in edited.to_dict("records"):
@@ -464,14 +517,14 @@ with tab2:
             actual_cost = row.get('actual_cost', 0) or 0
             paid = row.get('paid', 0) or 0
             remaining_edited = row.get('remaining', None)
-            if remaining_edited is not None and remaining_edited != (close_deal - paid):
+            if remaining_edited is not None and abs(remaining_edited - (close_deal - paid)) > 0.01:
                 # user edited "remaining" directly -> treat it as the source of truth
                 remaining = remaining_edited
                 paid = close_deal - remaining
             else:
                 remaining = close_deal - paid
             profit = close_deal - actual_cost
-            status = "Paid" if remaining <= 0 else "Pending"
+            status = "Paid" if remaining <= 0.01 else "Pending"
             cur.execute("""UPDATE business_deals SET date=?, client=?, equipment=?, specs=?,
                            close_deal=?, actual_cost=?, actual_price_per_item=?, paid=?, remaining=?,
                            profit=?, team_member=?, status=? WHERE id=?""",
@@ -563,6 +616,168 @@ with tab2:
         with open(records_pdf_path, "rb") as f:
             rc2.download_button("⬇️ Records PDF", data=f, file_name="records.pdf",
                                  mime="application/pdf", key="records_pdf_btn")
+
+    # =====================================================================
+    # NEW (point 1): Add Items to an Existing Deal
+    # Every logged deal gets a small "➕ Items" button. Clicking it opens a
+    # mini add-item form for that specific deal. New items are appended to
+    # deal_items (existing items are kept, nothing is overwritten), and the
+    # parent business_deals row (close_deal / actual_cost / actual_price_per_item /
+    # remaining / profit / status / equipment / specs) is recalculated from
+    # ALL items now belonging to that deal. Because the Invoice/Quotation/
+    # Delivery Challan section below always re-reads deal_items fresh by
+    # deal_id, the updated items show up automatically the next time you
+    # print that deal — no separate step needed.
+    # =====================================================================
+    st.divider()
+    st.subheader("🔧 Kisi Deal Mein Items Add Karein")
+    st.caption("Neeche diye gaye ➕ Items button se kisi bhi purani deal mein naye items add karein — "
+               "Total, Remaining, Profit sab khud update ho jayega, aur uski Invoice/Quotation/Challan "
+               "bhi update shuda items ke sath print hogi.")
+
+    if not st.session_state.business_df.empty:
+
+        def _select_deal_to_edit_cb(deal_id):
+            st.session_state.editing_deal_id = deal_id
+            st.session_state.update_temp_items = []
+
+        header_c1, header_c2, header_c3, header_c4 = st.columns([1, 3, 2, 1])
+        header_c1.markdown("**No.**"); header_c2.markdown("**Client**")
+        header_c3.markdown("**Close Deal**"); header_c4.markdown("**Action**")
+
+        for _, drow in st.session_state.business_df.sort_values('id', ascending=False).iterrows():
+            rcol1, rcol2, rcol3, rcol4 = st.columns([1, 3, 2, 1])
+            rcol1.write(f"#{int(drow['id'])}")
+            rcol2.write(drow['client'])
+            rcol3.write(f"Rs {drow['close_deal']:,.0f}")
+            rcol4.button("➕ Items", key=f"edit_deal_btn_{int(drow['id'])}",
+                        on_click=_select_deal_to_edit_cb, args=(int(drow['id']),))
+
+        if st.session_state.get("editing_deal_id") is not None:
+            edit_deal_id = st.session_state.editing_deal_id
+
+            with st.container(border=True):
+                st.markdown(f"**Deal #{edit_deal_id} mein items add kar rahe hain:**")
+
+                conn = sqlite3.connect('enterprise.db')
+                existing_items_df = pd.read_sql(
+                    "SELECT equipment, specs, quantity, unit_price, unit_actual_cost, line_total "
+                    "FROM deal_items WHERE deal_id = ?", conn, params=(int(edit_deal_id),))
+                conn.close()
+                st.write("Is deal ke existing items:")
+                st.dataframe(existing_items_df, use_container_width=True, hide_index=True)
+
+                uc3, uc4 = st.columns(2)
+                uc3.text_input("Equipment Name", key="update_item_name_input")
+                uc4.text_input("Specs", key="update_item_specs_input")
+                uc5, uc6, uc7 = st.columns(3)
+                uc5.number_input("Qty", min_value=1, format="%g", key="update_item_qty_input")
+                uc6.number_input("Unit Price", min_value=0.0, format="%g", key="update_item_price_input")
+                uc7.number_input("Actual Cost", min_value=0.0, format="%g", key="update_item_cost_input")
+
+                def _add_update_item_cb():
+                    name = st.session_state.update_item_name_input
+                    if name and name.strip():
+                        qty = st.session_state.update_item_qty_input
+                        price = st.session_state.update_item_price_input
+                        cost = st.session_state.update_item_cost_input
+                        st.session_state.update_temp_items.append({
+                            'equipment': name,
+                            'specs': st.session_state.update_item_specs_input,
+                            'quantity': qty,
+                            'unit_price': price,
+                            'unit_actual_cost': cost,
+                            'line_total': qty * price,
+                            'line_actual_cost': qty * cost,
+                        })
+                        st.session_state.update_item_name_input = ""
+                        st.session_state.update_item_specs_input = ""
+                        st.session_state.update_item_qty_input = 1
+                        st.session_state.update_item_price_input = 0.0
+                        st.session_state.update_item_cost_input = 0.0
+                        st.session_state.update_add_item_warning = False
+                    else:
+                        st.session_state.update_add_item_warning = True
+
+                st.button("➕ Add to List", key="update_add_item_btn", on_click=_add_update_item_cb)
+                if st.session_state.get("update_add_item_warning"):
+                    st.warning("Equipment Name likhna zaroori hai.")
+
+                def _remove_update_item_cb(idx):
+                    if 0 <= idx < len(st.session_state.update_temp_items):
+                        st.session_state.update_temp_items.pop(idx)
+
+                if st.session_state.update_temp_items:
+                    st.write("**Naye Items (abhi save nahi huay):**")
+                    for idx, item in enumerate(st.session_state.update_temp_items):
+                        nic1, nic2, nic3, nic4, nic5, nic6 = st.columns([2, 2, 1, 1, 1, 0.6])
+                        nic1.write(item['equipment']); nic2.write(item['specs'])
+                        nic3.write(f"{item['quantity']:g}"); nic4.write(f"{item['unit_price']:.0f}")
+                        nic5.write(f"{item['line_total']:.0f}")
+                        nic6.button("🗑️", key=f"del_update_item_{idx}",
+                                    on_click=_remove_update_item_cb, args=(idx,))
+
+                    def _update_deal_cb():
+                        deal_id = int(edit_deal_id)
+                        new_items = st.session_state.update_temp_items
+                        if not new_items:
+                            return
+                        conn = sqlite3.connect('enterprise.db')
+                        cur = conn.cursor()
+                        for item in new_items:
+                            cur.execute("""INSERT INTO deal_items
+                                (deal_id, equipment, specs, quantity, unit_price, unit_actual_cost, line_total, line_actual_cost)
+                                VALUES (?,?,?,?,?,?,?,?)""",
+                                (deal_id, item['equipment'], item['specs'], item['quantity'], item['unit_price'],
+                                 item['unit_actual_cost'], item['line_total'], item['line_actual_cost']))
+                        conn.commit()
+
+                        # Recompute the parent deal's totals from ALL items now on file
+                        # for this deal_id (existing rows + the ones just inserted).
+                        all_items_df = pd.read_sql("SELECT * FROM deal_items WHERE deal_id=?", conn, params=(deal_id,))
+                        close_deal = all_items_df['line_total'].sum()
+                        actual_cost = all_items_df['line_actual_cost'].sum()
+                        if len(all_items_df) == 1:
+                            equipment_display = all_items_df.iloc[0]['equipment']
+                            specs_display = all_items_df.iloc[0]['specs']
+                        else:
+                            equipment_display = ", ".join(all_items_df['equipment'].tolist())
+                            specs_display = "Multiple Items"
+                        actual_price_display = ", ".join(f"{v:.0f}" for v in all_items_df['unit_actual_cost'].tolist())
+
+                        old_row = st.session_state.business_df[st.session_state.business_df['id'] == deal_id].iloc[0]
+                        paid = old_row['paid']
+                        remaining = close_deal - paid
+                        profit = close_deal - actual_cost
+                        status = "Paid" if remaining <= 0.01 else "Pending"
+
+                        cur.execute("""UPDATE business_deals SET equipment=?, specs=?, close_deal=?, actual_cost=?,
+                                       actual_price_per_item=?, remaining=?, profit=?, status=? WHERE id=?""",
+                                    (equipment_display, specs_display, close_deal, actual_cost, actual_price_display,
+                                     remaining, profit, status, deal_id))
+                        conn.commit()
+                        st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
+                        conn.close()
+
+                        st.session_state.update_temp_items = []
+                        st.session_state.editing_deal_id = None
+                        st.session_state.update_deal_message = (
+                            "success", f"Deal #{deal_id} update ho gayi — naye items add hogaye! "
+                                       f"Ab is deal ki Invoice/Quotation/Challan updated items ke sath print hogi.")
+
+                    st.button("💾 Deal Update Karein (Items Save Karein)", key="update_deal_btn",
+                             on_click=_update_deal_cb, type="primary")
+
+                def _cancel_edit_deal_cb():
+                    st.session_state.editing_deal_id = None
+                    st.session_state.update_temp_items = []
+
+                st.button("✖️ Cancel", key="cancel_edit_deal_btn", on_click=_cancel_edit_deal_cb)
+
+        if st.session_state.get("update_deal_message"):
+            level, text = st.session_state.update_deal_message
+            getattr(st, level)(text)
+            st.session_state.update_deal_message = None
 
     st.divider()
     st.subheader("🖨️ Generate Invoice / Quotation / Delivery Challan")
