@@ -421,10 +421,12 @@ with tab2:
         st.session_state.deal_paid = 0.0
         st.session_state.deal_message = ("success", f"Deal {inv_no} save ho gayi!")
 
-    def _save_records_edits_cb():
+    def _save_records_edits(edited):
         # Records (Business Deals) editable table — recompute remaining/profit/status
         # from the edited numbers so the sheet always stays internally consistent.
-        edited = st.session_state.records_editor_data
+        # NOTE: `edited` must be the DataFrame RETURNED by st.data_editor(), not
+        # st.session_state[key] — for data_editor, session_state[key] only holds
+        # a raw {edited_rows, added_rows, deleted_rows} dict, not a merged DataFrame.
         conn = sqlite3.connect('enterprise.db')
         cur = conn.cursor()
         for row in edited.to_dict("records"):
@@ -443,7 +445,6 @@ with tab2:
         conn.commit()
         st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
         conn.close()
-        st.session_state.records_save_message = True
 
     with st.container(border=True):
         c1, c2 = st.columns(2)
@@ -496,14 +497,13 @@ with tab2:
     display_df = display_df[RECORD_DISPLAY_COLUMNS]
 
     # ---- Editable records sheet (point 7) ----
-    st.data_editor(
+    edited_records = st.data_editor(
         display_df, use_container_width=True, hide_index=True, num_rows="fixed",
         disabled=["id"], key="records_editor_data"
     )
-    st.button("💾 Save Records Changes", on_click=_save_records_edits_cb, key="save_records_btn")
-    if st.session_state.get("records_save_message"):
+    if st.button("💾 Save Records Changes", key="save_records_btn"):
+        _save_records_edits(edited_records)
         st.success("Records update ho gaye!")
-        st.session_state.records_save_message = False
 
     # ---- Records CSV / PDF export (point 3 & 5: landscape, "Records" heading, no stamp/account) ----
     if not display_df.empty:
@@ -598,8 +598,7 @@ with tab3:
         else:
             st.session_state.debit_add_warning = True
 
-    def _save_credit_edits_cb():
-        edited = st.session_state.credit_editor_data
+    def _save_credit_edits(edited):
         conn = sqlite3.connect('enterprise.db')
         conn.execute("DELETE FROM credit_manual")
         for row in edited.to_dict("records"):
@@ -613,8 +612,7 @@ with tab3:
         st.session_state.credit_manual_df = pd.read_sql("SELECT * FROM credit_manual", conn)
         conn.close()
 
-    def _save_debit_edits_cb():
-        edited = st.session_state.debit_editor_data
+    def _save_debit_edits(edited):
         conn = sqlite3.connect('enterprise.db')
         conn.execute("DELETE FROM debit_manual")
         for row in edited.to_dict("records"):
@@ -648,8 +646,7 @@ with tab3:
         st.session_state.expense_amount_input = 0.0
         st.session_state.expense_add_warning = False
 
-    def _save_expense_edits_cb():
-        edited = st.session_state.expense_editor_data
+    def _save_expense_edits(edited):
         conn = sqlite3.connect('enterprise.db')
         conn.execute("DELETE FROM daily_expenses")
         for row in edited.to_dict("records"):
@@ -721,7 +718,9 @@ with tab3:
             edited_credit = st.data_editor(
                 st.session_state.credit_manual_df.drop(columns=['id']),
                 use_container_width=True, hide_index=True, num_rows="dynamic", key="credit_editor_data")
-            st.button("💾 Save Credit Changes", on_click=_save_credit_edits_cb, key="save_credit_btn")
+            if st.button("💾 Save Credit Changes", key="save_credit_btn"):
+                _save_credit_edits(edited_credit)
+                st.success("Credit Sheet update ho gayi!")
 
     # ---------------- DEBIT SHEET ----------------
     with debit_tab:
@@ -775,7 +774,9 @@ with tab3:
             edited_debit = st.data_editor(
                 st.session_state.debit_manual_df.drop(columns=['id']),
                 use_container_width=True, hide_index=True, num_rows="dynamic", key="debit_editor_data")
-            st.button("💾 Save Debit Changes", on_click=_save_debit_edits_cb, key="save_debit_btn")
+            if st.button("💾 Save Debit Changes", key="save_debit_btn"):
+                _save_debit_edits(edited_debit)
+                st.success("Debit Sheet update ho gayi!")
 
     # ---------------- DAILY EXPENSE SHEET ----------------
     with expense_tab:
@@ -823,7 +824,9 @@ with tab3:
                 column_config={
                     "category": st.column_config.SelectboxColumn("category", options=["Eating", "Fuel", "Others"])
                 })
-            st.button("💾 Save Expense Changes", on_click=_save_expense_edits_cb, key="save_expense_btn")
+            if st.button("💾 Save Expense Changes", key="save_expense_btn"):
+                _save_expense_edits(edited_expense)
+                st.success("Expense Sheet update ho gayi!")
 
 # ---------------- TAB 4: PERFORMANCE INSIGHTS ----------------
 with tab4:
