@@ -1,26 +1,58 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-from datetime import datetime
+from datetime import datetime, date
 from fpdf import FPDF
 import os
 import plotly.express as px
 
-# --- PDF GENERATOR CLASS (Letterhead / header / footer design UNCHANGED) ---
+# =========================================================================
+# DISPLAY / EXPORT COLUMN CONFIG
+# (kept in one place so Records / Credit / Debit / Expense sheets all use
+#  the same column order + headers everywhere: on-screen table, editor,
+#  CSV export and PDF export)
+# =========================================================================
+
+# NOTE: actual_price_per_item now sits AFTER actual_cost (point 6)
+RECORD_DISPLAY_COLUMNS = ['id', 'date', 'client', 'equipment', 'specs', 'close_deal',
+                          'actual_cost', 'actual_price_per_item', 'paid', 'remaining',
+                          'profit', 'team_member', 'status']
+RECORD_DISPLAY_HEADERS = ['No.', 'Date', 'Client', 'Equipment', 'Specs', 'Close Deal',
+                           'Actual Cost', 'Actual Price/Item', 'Paid', 'Remaining',
+                           'Profit', 'Team Member', 'Status']
+RECORD_COL_WIDTHS = [10, 18, 30, 30, 26, 20, 20, 24, 18, 20, 18, 22, 21]  # sums to 277mm (A4 landscape usable width)
+
+CREDIT_HEADERS = ["Client Name", "Id No", "Total Payment", "Paid by Client", "Remaining from Client"]
+CREDIT_COL_WIDTHS = [60, 35, 60, 60, 62]  # sums to 277mm
+
+DEBIT_HEADERS = ["Client Name", "Id No", "Total Payment", "Paid to Client", "Remaining to be paid"]
+DEBIT_COL_WIDTHS = [60, 35, 60, 60, 62]  # sums to 277mm
+
+EXPENSE_HEADERS = ["Description", "Amount"]
+EXPENSE_COL_WIDTHS = [130, 60]  # sums to 190mm (A4 portrait usable width) -- point 4: only 2 columns
+
+
+# --- PDF GENERATOR CLASS (Letterhead / header / footer design UNCHANGED in spirit,
+#     just made width/height-aware so the same letterhead works in both
+#     portrait and landscape pages) ---
 class InvoicePDF(FPDF):
     def header(self):
         self.set_fill_color(0, 51, 102); self.rect(10, 8, 22, 8, "F")
-        self.set_fill_color(0, 153, 224); self.rect(35, 8, 165, 8, "F")
+        blue_w = self.w - 45
+        self.set_fill_color(0, 153, 224); self.rect(35, 8, blue_w, 8, "F")
         if os.path.exists("lo.png"): self.image("lo.png", x=10, y=18, w=25)
         self.set_xy(40, 20); self.set_font("Arial", "B", 20); self.set_text_color(20, 40, 80)
         self.cell(0, 10, "Badar Diagnostics & Medical Equipments")
 
     def footer(self):
-        self.set_fill_color(0, 51, 102); self.rect(10, 260, 190, 15, "F")
-        self.set_fill_color(0, 153, 224); self.rect(10, 275, 190, 8, "F")
-        self.set_y(262); self.set_text_color(255, 255, 255); self.set_font("Arial", "", 7)
+        rect_w = self.w - 20
+        navy_y = self.h - 37
+        blue_y = self.h - 22
+        self.set_fill_color(0, 51, 102); self.rect(10, navy_y, rect_w, 15, "F")
+        self.set_fill_color(0, 153, 224); self.rect(10, blue_y, rect_w, 8, "F")
+        self.set_y(self.h - 35); self.set_text_color(255, 255, 255); self.set_font("Arial", "", 7)
         self.multi_cell(0, 3.5, "Lahore Office: D Block Nawab Town, Lahore   |   Okara Office: Adjacent Ibn-e-Sina Lab, Opposite DHQ, Okara\nPindi Office: Commercial Market, Rawalpindi   |   Bahawalpur Office: Model Town C, Bahawalpur", align="C")
-        self.set_y(276); self.set_font("Arial", "B", 8)
+        self.set_y(self.h - 21); self.set_font("Arial", "B", 8)
         self.cell(0, 4, " 0300-7303020, 0334-7303020      E-mail: munir.badar1@gmail.com", align="C")
 
 
@@ -55,10 +87,15 @@ def _wrapped_line_count(pdf, text, width):
 
 
 def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
+    """Generates Invoice / Quotation / Delivery Challan (always portrait, single record).
+    Delivery Challan: same layout as Invoice but PRICE/TOTAL cells are left blank
+    (not even 0) and no Grand Total is printed."""
     pdf = InvoicePDF()
     pdf.add_page()
     blue_color = (0, 153, 224)
     pdf.set_draw_color(*blue_color) # Default draw color set to blue
+
+    is_challan = (doc_type == "Delivery Challan")
 
     # 1. Invoice No & Date
     pdf.set_xy(15, 45)
@@ -84,7 +121,7 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
     pdf.set_draw_color(0, 0, 0)  # black underline just for the client name
     pdf.line(name_x, 64, name_x + pdf.get_string_width(client_name), 64)
 
-    # 3. Table — INVOICE or QUOTATION title depending on what was picked
+    # 3. Table — INVOICE / QUOTATION / DELIVERY CHALLAN title depending on what was picked
     pdf.set_xy(0, 70); pdf.set_font("Arial", "B", 16); pdf.cell(210, 8, doc_type.upper(), align="C")
 
     _draw_item_table_header(pdf, 85)
@@ -101,13 +138,19 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
         pdf.cell(45, 8, str(item.equipment), 1)
         pdf.cell(40, 8, str(item.specs), 1)
         pdf.cell(15, 8, f"{item.quantity:g}", 1, 0, "C")
-        pdf.cell(25, 8, f"{item.unit_price:.0f}", 1, 0, "C")
-        pdf.cell(25, 8, f"{item.line_total:.0f}", 1, 1, "C")
+        if is_challan:
+            # Delivery Challan: price/total left completely blank, not even 0
+            pdf.cell(25, 8, "", 1, 0, "C")
+            pdf.cell(25, 8, "", 1, 1, "C")
+        else:
+            pdf.cell(25, 8, f"{item.unit_price:.0f}", 1, 0, "C")
+            pdf.cell(25, 8, f"{item.line_total:.0f}", 1, 1, "C")
 
-    # Grand Total
-    pdf.set_x(125); pdf.set_font("Arial", "B", 10)
-    pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
-    pdf.cell(25, 8, f"{deal['close_deal']:.0f}", 1, 1, "C", True)
+    # Grand Total (skipped entirely for Delivery Challan since there's no pricing)
+    if not is_challan:
+        pdf.set_x(125); pdf.set_font("Arial", "B", 10)
+        pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
+        pdf.cell(25, 8, f"{deal['close_deal']:.0f}", 1, 1, "C", True)
 
     # --- Footer Section Layout (Regards / Account Details / Stamp) ---
     # Invoice keeps the EXACT original fixed layout (y=222 / y=225), untouched.
@@ -129,7 +172,7 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
             pdf.add_page()
             divider_y = 45
     else:
-        divider_y = 222  # original fixed position, unchanged for Invoice
+        divider_y = 222  # original fixed position, unchanged for Invoice / Delivery Challan
 
     content_y = divider_y + 3
 
@@ -138,6 +181,8 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
     pdf.line(10, divider_y, 200, divider_y)
 
     # --- Regards & Account Details (Left side) ---
+    # Stamp + Account Details appear on Invoice / Quotation / Delivery Challan only
+    # (never on the Records / Credit / Debit / Expense sheet exports).
     pdf.set_xy(15, content_y)
     pdf.set_font("Arial", "I", 9)
     pdf.cell(90, 5, "Regards,", ln=1)
@@ -160,9 +205,66 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
     if os.path.exists("stamp.jpg"):
         pdf.image("stamp.jpg", x=140, y=content_y, w=35)
 
-    file_path = f"{doc_type}_{deal['invoice_no']}.pdf"
+    file_path = f"{doc_type.replace(' ', '_')}_{deal['invoice_no']}.pdf"
     pdf.output(file_path)
     return file_path
+
+
+# =========================================================================
+# GENERIC SHEET EXPORT (Records / Credit Sheet / Debit Sheet / Expense Sheet)
+# Records / Credit / Debit -> landscape, no stamp / account details, title
+# in the usual title-slot says "Records" / "Credit Sheet" / "Debit Sheet".
+# Expense Sheet -> portrait, only 2 columns (Description, Amount), no
+# stamp / account details, title says "Expense Sheet".
+# =========================================================================
+
+def _draw_sheet_table_header(pdf, headers, col_widths, y, start_x=10):
+    pdf.set_xy(start_x, y)
+    pdf.set_draw_color(0, 153, 224)
+    pdf.set_font("Arial", "B", 8)
+    pdf.set_fill_color(240, 240, 240)
+    pdf.set_text_color(0, 0, 0)
+    for h, w in zip(headers, col_widths):
+        pdf.cell(w, 8, str(h), 1, 0, "C", True)
+
+
+def generate_sheet_pdf(df, headers, col_widths, title, filename_prefix, orientation="L"):
+    pdf = InvoicePDF(orientation=orientation)
+    pdf.add_page()
+    start_x = 10
+    title_y = 30 if orientation == "L" else 45
+    pdf.set_xy(0, title_y)
+    pdf.set_font("Arial", "B", 16); pdf.set_text_color(0, 0, 0)
+    pdf.cell(pdf.w, 8, title.upper(), align="C")
+
+    table_y = title_y + 14
+    _draw_sheet_table_header(pdf, headers, col_widths, table_y, start_x)
+    pdf.set_font("Arial", "", 8); pdf.set_text_color(0, 0, 0); pdf.set_draw_color(0, 153, 224)
+
+    row_h = 7
+    y = table_y + 8
+    bottom_limit = pdf.h - 45  # leave room for the letterhead footer band
+
+    for _, row in df.iterrows():
+        if y + row_h > bottom_limit:
+            pdf.add_page()
+            y = title_y
+            _draw_sheet_table_header(pdf, headers, col_widths, y, start_x)
+            pdf.set_font("Arial", "", 8); pdf.set_draw_color(0, 153, 224)
+            y += 8
+        pdf.set_xy(start_x, y)
+        for val, w in zip(row.tolist(), col_widths):
+            text = "" if pd.isna(val) else str(val)
+            pdf.cell(w, row_h, text, 1, 0, "C")
+        y += row_h
+
+    path = f"{filename_prefix}.pdf"
+    pdf.output(path)
+    return path
+
+
+def _df_to_csv_bytes(df):
+    return df.to_csv(index=False).encode("utf-8-sig")
 
 
 # --- APP SETUP ---
@@ -171,7 +273,7 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS business_deals
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, invoice_no TEXT, client TEXT,
-                  equipment TEXT, specs TEXT, actual_price_per_item TEXT, close_deal REAL, actual_cost REAL,
+                  equipment TEXT, specs TEXT, close_deal REAL, actual_cost REAL, actual_price_per_item TEXT,
                   paid REAL, remaining REAL, profit REAL, team_member TEXT, status TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS deal_items
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, deal_id INTEGER, equipment TEXT, specs TEXT,
@@ -183,6 +285,9 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS debit_manual
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, client TEXT, total_payment REAL,
                   paid_to_client REAL, remaining_to_be_paid REAL)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS daily_expenses
+                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, category TEXT,
+                  description TEXT, amount REAL)''')
 
     # Safety migration: add any columns missing from an older business_deals table on disk.
     existing_cols = [row[1] for row in c.execute("PRAGMA table_info(business_deals)").fetchall()]
@@ -212,7 +317,12 @@ if 'credit_manual_df' not in st.session_state or 'debit_manual_df' not in st.ses
     st.session_state.debit_manual_df = pd.read_sql("SELECT * FROM debit_manual", conn)
     conn.close()
 
-tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit Sheets", "📊 Analytics"])
+if 'expense_df' not in st.session_state:
+    conn = sqlite3.connect('enterprise.db')
+    st.session_state.expense_df = pd.read_sql("SELECT * FROM daily_expenses", conn)
+    conn.close()
+
+tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit/Expense Sheets", "📊 Analytics"])
 
 # ---------------- TAB 2: BUSINESS DEALS ----------------
 with tab2:
@@ -286,11 +396,11 @@ with tab2:
         cur = conn.cursor()
         # one deal = one row = one invoice_no, with totals summed across all items
         cur.execute("""INSERT INTO business_deals
-            (date, invoice_no, client, equipment, specs, actual_price_per_item, close_deal, actual_cost,
+            (date, invoice_no, client, equipment, specs, close_deal, actual_cost, actual_price_per_item,
              paid, remaining, profit, team_member, status)
             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (datetime.now().strftime("%Y-%m-%d"), inv_no, st.session_state.deal_client, equipment_display,
-             specs_display, actual_price_display, close_deal, actual_cost, paid, remaining, profit,
+             specs_display, close_deal, actual_cost, actual_price_display, paid, remaining, profit,
              st.session_state.deal_team_member, status))
         deal_id = cur.lastrowid
 
@@ -310,6 +420,30 @@ with tab2:
         st.session_state.deal_team_member = ""
         st.session_state.deal_paid = 0.0
         st.session_state.deal_message = ("success", f"Deal {inv_no} save ho gayi!")
+
+    def _save_records_edits_cb():
+        # Records (Business Deals) editable table — recompute remaining/profit/status
+        # from the edited numbers so the sheet always stays internally consistent.
+        edited = st.session_state.records_editor_data
+        conn = sqlite3.connect('enterprise.db')
+        cur = conn.cursor()
+        for row in edited.to_dict("records"):
+            close_deal = row.get('close_deal', 0) or 0
+            actual_cost = row.get('actual_cost', 0) or 0
+            paid = row.get('paid', 0) or 0
+            remaining = close_deal - paid
+            profit = close_deal - actual_cost
+            status = "Paid" if remaining <= 0 else "Pending"
+            cur.execute("""UPDATE business_deals SET date=?, client=?, equipment=?, specs=?,
+                           close_deal=?, actual_cost=?, actual_price_per_item=?, paid=?, remaining=?,
+                           profit=?, team_member=?, status=? WHERE id=?""",
+                        (row.get('date'), row.get('client'), row.get('equipment'), row.get('specs'),
+                         close_deal, actual_cost, row.get('actual_price_per_item'), paid, remaining,
+                         profit, row.get('team_member'), status, row.get('id')))
+        conn.commit()
+        st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
+        conn.close()
+        st.session_state.records_save_message = True
 
     with st.container(border=True):
         c1, c2 = st.columns(2)
@@ -353,16 +487,43 @@ with tab2:
 
     st.divider()
     st.subheader("📋 Records")
-    # ---- 4) invoice_no column dropped from view — 'id' is the unique identifier now ----
-    display_df = st.session_state.business_df.drop(columns=['invoice_no'], errors='ignore')
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    # ---- Build the display dataframe in the fixed column order (point 6) ----
+    display_df = st.session_state.business_df.copy()
+    for col in RECORD_DISPLAY_COLUMNS:
+        if col not in display_df.columns:
+            display_df[col] = None
+    display_df = display_df[RECORD_DISPLAY_COLUMNS]
+
+    # ---- Editable records sheet (point 7) ----
+    st.data_editor(
+        display_df, use_container_width=True, hide_index=True, num_rows="fixed",
+        disabled=["id"], key="records_editor_data"
+    )
+    st.button("💾 Save Records Changes", on_click=_save_records_edits_cb, key="save_records_btn")
+    if st.session_state.get("records_save_message"):
+        st.success("Records update ho gaye!")
+        st.session_state.records_save_message = False
+
+    # ---- Records CSV / PDF export (point 3 & 5: landscape, "Records" heading, no stamp/account) ----
+    if not display_df.empty:
+        export_df = display_df.sort_values('id', ascending=False)  # most recent first
+        export_df_named = export_df.rename(columns=dict(zip(RECORD_DISPLAY_COLUMNS, RECORD_DISPLAY_HEADERS)))
+        rc1, rc2 = st.columns(2)
+        rc1.download_button("⬇️ Records CSV", data=_df_to_csv_bytes(export_df_named),
+                             file_name="records.csv", mime="text/csv", key="records_csv_btn")
+        records_pdf_path = generate_sheet_pdf(export_df, RECORD_DISPLAY_HEADERS, RECORD_COL_WIDTHS,
+                                               "Records", "records_sheet", orientation="L")
+        with open(records_pdf_path, "rb") as f:
+            rc2.download_button("⬇️ Records PDF", data=f, file_name="records.pdf",
+                                 mime="application/pdf", key="records_pdf_btn")
 
     st.divider()
-    st.subheader("🖨️ Generate Invoice / Quotation PDF")
+    st.subheader("🖨️ Generate Invoice / Quotation / Delivery Challan")
     if not st.session_state.business_df.empty:
         col_a, col_b = st.columns([0.6, 0.4])
         selected_id = col_a.selectbox("Select Deal ID:", st.session_state.business_df['id'].tolist())
-        doc_choice = col_b.selectbox("Print as", ["Invoice", "Quotation"])
+        doc_choice = col_b.selectbox("Print as", ["Invoice", "Quotation", "Delivery Challan"])
 
         terms_text = None
         if doc_choice == "Quotation":
@@ -386,9 +547,9 @@ with tab2:
     else:
         st.info("Abhi koi record nahi hai.")
 
-# ---------------- TAB 3: CREDIT / DEBIT SHEETS ----------------
+# ---------------- TAB 3: CREDIT / DEBIT / EXPENSE SHEETS ----------------
 with tab3:
-    st.title("💳 Credit / Debit Sheets")
+    st.title("💳 Credit / Debit / Expense Sheets")
     st.caption(
         "Deals ke records se yeh sheets khud-ba-khud update hoti hain. Agar client ne poora ya "
         "kam payment kiya ho to woh deal Credit Sheet mein jaati hai (client ne humein dena hai). "
@@ -467,8 +628,46 @@ with tab3:
         st.session_state.debit_manual_df = pd.read_sql("SELECT * FROM debit_manual", conn)
         conn.close()
 
+    def _add_expense_cb():
+        category = st.session_state.expense_category_input
+        description = (st.session_state.expense_desc_manual_input
+                        if category == "Others" else category)
+        if not description or not str(description).strip():
+            st.session_state.expense_add_warning = True
+            return
+        amount = st.session_state.expense_amount_input
+        exp_date = st.session_state.expense_date_input
+        conn = sqlite3.connect('enterprise.db')
+        conn.execute(
+            "INSERT INTO daily_expenses (date, category, description, amount) VALUES (?,?,?,?)",
+            (str(exp_date), category, description, amount))
+        conn.commit()
+        st.session_state.expense_df = pd.read_sql("SELECT * FROM daily_expenses", conn)
+        conn.close()
+        st.session_state.expense_desc_manual_input = ""
+        st.session_state.expense_amount_input = 0.0
+        st.session_state.expense_add_warning = False
+
+    def _save_expense_edits_cb():
+        edited = st.session_state.expense_editor_data
+        conn = sqlite3.connect('enterprise.db')
+        conn.execute("DELETE FROM daily_expenses")
+        for row in edited.to_dict("records"):
+            desc = row.get('description', '')
+            if str(desc).strip():
+                conn.execute(
+                    "INSERT INTO daily_expenses (date, category, description, amount) VALUES (?,?,?,?)",
+                    (row.get('date'), row.get('category'), desc, row.get('amount', 0) or 0))
+        conn.commit()
+        st.session_state.expense_df = pd.read_sql("SELECT * FROM daily_expenses", conn)
+        conn.close()
+
     deals = st.session_state.business_df
-    credit_tab, debit_tab = st.tabs(["💰 Credit Sheet (Client hume dega)", "💸 Debit Sheet (Hum client ko dengay)"])
+    credit_tab, debit_tab, expense_tab = st.tabs([
+        "💰 Credit Sheet (Client hume dega)",
+        "💸 Debit Sheet (Hum client ko dengay)",
+        "🧾 Daily Expense Sheet"
+    ])
 
     # ---------------- CREDIT SHEET ----------------
     with credit_tab:
@@ -492,9 +691,20 @@ with tab3:
         }) if not manual_c.empty else pd.DataFrame(
             columns=["Client Name", "Id No", "Total Payment", "Paid by Client", "Remaining from Client"])
 
+        full_credit_view = pd.concat([auto_credit_view, manual_c_view], ignore_index=True)
+
         st.subheader("📋 Full Credit Sheet")
-        st.dataframe(pd.concat([auto_credit_view, manual_c_view], ignore_index=True),
-                     use_container_width=True, hide_index=True)
+        st.dataframe(full_credit_view, use_container_width=True, hide_index=True)
+
+        # ---- Credit Sheet CSV / PDF export (landscape, "Credit Sheet" heading, no stamp/account) ----
+        cec1, cec2 = st.columns(2)
+        cec1.download_button("⬇️ Credit Sheet CSV", data=_df_to_csv_bytes(full_credit_view),
+                              file_name="credit_sheet.csv", mime="text/csv", key="credit_csv_btn")
+        credit_pdf_path = generate_sheet_pdf(full_credit_view, CREDIT_HEADERS, CREDIT_COL_WIDTHS,
+                                              "Credit Sheet", "credit_sheet", orientation="L")
+        with open(credit_pdf_path, "rb") as f:
+            cec2.download_button("⬇️ Credit Sheet PDF", data=f, file_name="credit_sheet.pdf",
+                                  mime="application/pdf", key="credit_pdf_btn")
 
         st.divider()
         st.subheader("➕ Add Manual Entry (deals se bahar, jinse paise lene hain)")
@@ -535,9 +745,20 @@ with tab3:
         }) if not manual_d.empty else pd.DataFrame(
             columns=["Client Name", "Id No", "Total Payment", "Paid to Client", "Remaining to be paid"])
 
+        full_debit_view = pd.concat([auto_debit_view, manual_d_view], ignore_index=True)
+
         st.subheader("📋 Full Debit Sheet")
-        st.dataframe(pd.concat([auto_debit_view, manual_d_view], ignore_index=True),
-                     use_container_width=True, hide_index=True)
+        st.dataframe(full_debit_view, use_container_width=True, hide_index=True)
+
+        # ---- Debit Sheet CSV / PDF export (landscape, "Debit Sheet" heading, no stamp/account) ----
+        dec1, dec2 = st.columns(2)
+        dec1.download_button("⬇️ Debit Sheet CSV", data=_df_to_csv_bytes(full_debit_view),
+                              file_name="debit_sheet.csv", mime="text/csv", key="debit_csv_btn")
+        debit_pdf_path = generate_sheet_pdf(full_debit_view, DEBIT_HEADERS, DEBIT_COL_WIDTHS,
+                                             "Debit Sheet", "debit_sheet", orientation="L")
+        with open(debit_pdf_path, "rb") as f:
+            dec2.download_button("⬇️ Debit Sheet PDF", data=f, file_name="debit_sheet.pdf",
+                                  mime="application/pdf", key="debit_pdf_btn")
 
         st.divider()
         st.subheader("➕ Add Manual Entry (deals se bahar, jinko paise dene hain)")
@@ -556,9 +777,84 @@ with tab3:
                 use_container_width=True, hide_index=True, num_rows="dynamic", key="debit_editor_data")
             st.button("💾 Save Debit Changes", on_click=_save_debit_edits_cb, key="save_debit_btn")
 
+    # ---------------- DAILY EXPENSE SHEET ----------------
+    with expense_tab:
+        st.subheader("🧾 Daily Expense Sheet")
+        st.caption("Eating / Fuel select karne par description khud-ba-khud bhar jaati hai. "
+                    "Others select karne par description khud likhni hogi.")
+
+        ec1, ec2, ec3, ec4 = st.columns([1.2, 1.6, 1, 1])
+        category = ec1.selectbox("Category", ["Eating", "Fuel", "Others"], key="expense_category_input")
+        if category == "Others":
+            ec2.text_input("Description", key="expense_desc_manual_input")
+        else:
+            ec2.text_input("Description", value=category, disabled=True)
+        ec3.number_input("Amount", min_value=0.0, format="%g", key="expense_amount_input")
+        ec4.date_input("Date", value=date.today(), key="expense_date_input")
+
+        st.button("➕ Add Expense", on_click=_add_expense_cb, key="add_expense_btn")
+        if st.session_state.get("expense_add_warning"):
+            st.warning("Description likhna zaroori hai.")
+
+        st.divider()
+        st.subheader("📋 Full Expense Sheet")
+        st.dataframe(st.session_state.expense_df.drop(columns=['id'], errors='ignore'),
+                     use_container_width=True, hide_index=True)
+
+        # ---- Expense Sheet CSV / PDF export (point 4: portrait, only 2 columns, "Expense Sheet" heading) ----
+        if not st.session_state.expense_df.empty:
+            eec1, eec2 = st.columns(2)
+            eec1.download_button("⬇️ Expense Sheet CSV",
+                                  data=_df_to_csv_bytes(st.session_state.expense_df.drop(columns=['id'], errors='ignore')),
+                                  file_name="expense_sheet.csv", mime="text/csv", key="expense_csv_btn")
+            expense_pdf_df = st.session_state.expense_df[['description', 'amount']].rename(
+                columns={'description': 'Description', 'amount': 'Amount'})
+            expense_pdf_path = generate_sheet_pdf(expense_pdf_df, EXPENSE_HEADERS, EXPENSE_COL_WIDTHS,
+                                                   "Expense Sheet", "expense_sheet", orientation="P")
+            with open(expense_pdf_path, "rb") as f:
+                eec2.download_button("⬇️ Expense Sheet PDF", data=f, file_name="expense_sheet.pdf",
+                                      mime="application/pdf", key="expense_pdf_btn")
+
+        if not st.session_state.expense_df.empty:
+            st.write("**Manual Entries (editable)**")
+            edited_expense = st.data_editor(
+                st.session_state.expense_df.drop(columns=['id']),
+                use_container_width=True, hide_index=True, num_rows="dynamic", key="expense_editor_data",
+                column_config={
+                    "category": st.column_config.SelectboxColumn("category", options=["Eating", "Fuel", "Others"])
+                })
+            st.button("💾 Save Expense Changes", on_click=_save_expense_edits_cb, key="save_expense_btn")
+
 # ---------------- TAB 4: PERFORMANCE INSIGHTS ----------------
 with tab4:
     st.title("📊 Performance Insights")
+
+    # ---- Summary cards: monthly payments received, pending payments, profit, expense ----
+    this_month = datetime.now().strftime("%Y-%m")
+    biz = st.session_state.business_df.copy()
+    if not biz.empty:
+        biz_dates = pd.to_datetime(biz['date'], errors='coerce')
+        monthly_paid = biz.loc[biz_dates.dt.strftime("%Y-%m") == this_month, 'paid'].sum()
+        pending_total = biz.loc[biz['remaining'] > 0, 'remaining'].sum()
+        total_profit = biz['profit'].sum()
+    else:
+        monthly_paid = pending_total = total_profit = 0
+
+    exp = st.session_state.expense_df.copy()
+    if not exp.empty:
+        exp_dates = pd.to_datetime(exp['date'], errors='coerce')
+        monthly_expense = exp.loc[exp_dates.dt.strftime("%Y-%m") == this_month, 'amount'].sum()
+    else:
+        monthly_expense = 0
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("💰 Payments Received (This Month)", f"Rs {int(monthly_paid):,}")
+    m2.metric("⏳ Pending Payments", f"Rs {int(pending_total):,}")
+    m3.metric("📈 Total Profit", f"Rs {int(total_profit):,}")
+    m4.metric("💸 Expenses (This Month)", f"Rs {int(monthly_expense):,}")
+
+    st.divider()
+
     if not st.session_state.business_df.empty:
         st.metric("Total Revenue", f"Rs {int(st.session_state.business_df['close_deal'].sum()):,}")
         fig = px.bar(st.session_state.business_df, x='id', y='close_deal', template="plotly_dark")
