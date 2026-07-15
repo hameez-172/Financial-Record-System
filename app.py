@@ -13,14 +13,17 @@ import plotly.express as px
 #  CSV export and PDF export)
 # =========================================================================
 
-# NOTE: actual_price_per_item now sits AFTER actual_cost (point 6)
-RECORD_DISPLAY_COLUMNS = ['id', 'date', 'client', 'equipment', 'specs', 'close_deal',
-                          'actual_cost', 'actual_price_per_item', 'paid', 'remaining',
-                          'profit', 'team_member', 'status']
-RECORD_DISPLAY_HEADERS = ['No.', 'Date', 'Client', 'Equipment', 'Specs', 'Close Deal',
-                           'Actual Cost', 'Actual Price/Item', 'Paid', 'Remaining',
-                           'Profit', 'Team Member', 'Status']
-RECORD_COL_WIDTHS = [10, 18, 30, 30, 26, 20, 20, 24, 18, 20, 18, 22, 21]  # sums to 277mm (A4 landscape usable width)
+# Point 5 & 6: Qty column added right after Specs; Other Expenses column added
+# right after Actual Price/Item. actual_price_per_item still sits after actual_cost.
+RECORD_DISPLAY_COLUMNS = ['id', 'date', 'client', 'equipment', 'specs', 'qty_per_item',
+                          'close_deal', 'actual_cost', 'actual_price_per_item',
+                          'other_expenses_per_item', 'paid', 'remaining', 'profit',
+                          'team_member', 'status']
+RECORD_DISPLAY_HEADERS = ['No.', 'Date', 'Client', 'Equipment', 'Specs', 'Qty',
+                           'Close Deal', 'Actual Cost', 'Actual Price/Item',
+                           'Other Expenses', 'Paid', 'Remaining', 'Profit',
+                           'Team Member', 'Status']
+RECORD_COL_WIDTHS = [10, 18, 26, 26, 22, 16, 18, 18, 20, 20, 16, 18, 16, 20, 13]  # sums to 277mm
 
 CREDIT_HEADERS = ["Client Name", "Id No", "Total Payment", "Paid by Client", "Remaining from Client"]
 CREDIT_COL_WIDTHS = [60, 35, 60, 60, 62]  # sums to 277mm
@@ -30,6 +33,100 @@ DEBIT_COL_WIDTHS = [60, 35, 60, 60, 62]  # sums to 277mm
 
 EXPENSE_HEADERS = ["Description", "Amount"]
 EXPENSE_COL_WIDTHS = [130, 60]  # sums to 190mm (A4 portrait usable width) -- point 4: only 2 columns
+
+
+# =========================================================================
+# FORMATTING HELPERS
+# =========================================================================
+
+def _format_date_ddmmyyyy(value):
+    """Point 1: any downloaded document (PDF or CSV) shows dates as DD-MM-YYYY,
+    regardless of the internal YYYY-MM-DD storage format used on-screen/in filters."""
+    try:
+        return pd.to_datetime(value).strftime("%d-%m-%Y")
+    except Exception:
+        return value
+
+
+def _fmt_money(value):
+    """Point 3: comma-separated thousands wherever a document PRINTS a plain
+    money amount, e.g. 1000 -> 1,000, 28000 -> 28,000, however large."""
+    try:
+        return f"{float(value):,.0f}"
+    except (TypeError, ValueError):
+        return value
+
+
+def _prepare_export_df(df, date_cols=(), money_cols=()):
+    """Builds an export-ready copy of a dataframe: dates -> DD-MM-YYYY, plain
+    numeric money columns -> comma-formatted. Comma-joined multi-item text
+    columns (qty_per_item / actual_price_per_item / other_expenses_per_item)
+    are intentionally left untouched, since adding thousands-commas there
+    would clash with the comma already used as the per-item separator."""
+    out = df.copy()
+    for col in date_cols:
+        if col in out.columns:
+            out[col] = out[col].apply(_format_date_ddmmyyyy)
+    for col in money_cols:
+        if col in out.columns:
+            out[col] = out[col].apply(_fmt_money)
+    return out
+
+
+def _parse_csv_floats(s):
+    """Parses a comma-separated string of numbers (e.g. qty_per_item) back into
+    a list of floats, skipping blank/unparsable pieces."""
+    if s is None:
+        return []
+    out = []
+    for p in str(s).split(','):
+        p = p.strip()
+        if not p or p.lower() in ('none', 'nan'):
+            continue
+        try:
+            out.append(float(p))
+        except ValueError:
+            continue
+    return out
+
+
+_ONES = ["", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE",
+         "TEN", "ELEVEN", "TWELVE", "THIRTEEN", "FOURTEEN", "FIFTEEN", "SIXTEEN",
+         "SEVENTEEN", "EIGHTEEN", "NINETEEN"]
+_TENS = ["", "", "TWENTY", "THIRTY", "FORTY", "FIFTY", "SIXTY", "SEVENTY", "EIGHTY", "NINETY"]
+
+
+def _three_digit_words(n):
+    words = ""
+    if n >= 100:
+        words += _ONES[n // 100] + " HUNDRED "
+        n %= 100
+    if n >= 20:
+        words += _TENS[n // 10] + " "
+        n %= 10
+        if n:
+            words += _ONES[n] + " "
+    elif n > 0:
+        words += _ONES[n] + " "
+    return words.strip()
+
+
+def _number_to_words(n):
+    """Point 4: converts a Grand Total amount into ALL-CAPS English words."""
+    n = int(round(n))
+    if n == 0:
+        return "ZERO"
+    negative = n < 0
+    n = abs(n)
+    parts = []
+    for divisor, name in [(1_000_000_000, "BILLION"), (1_000_000, "MILLION"), (1_000, "THOUSAND")]:
+        if n >= divisor:
+            parts.append(f"{_three_digit_words(n // divisor)} {name}")
+            n %= divisor
+    if n > 0:
+        parts.append(_three_digit_words(n))
+    result = " ".join(parts).strip()
+    return ("MINUS " + result) if negative else result
 
 
 # --- PDF GENERATOR CLASS (Letterhead / header / footer design UNCHANGED in spirit,
@@ -59,10 +156,12 @@ class InvoicePDF(FPDF):
 def _draw_item_table_header(pdf, y):
     pdf.set_xy(25, y)
     pdf.set_draw_color(0, 153, 224) # Blue Border
-    pdf.set_font("Arial", "B", 9); pdf.set_fill_color(240, 240, 240)
+    # Point 2: longer header text (PRICE PER UNIT IN PKR / TOTAL PRICE IN PKR) needs
+    # a smaller font to fit the same column widths as before.
+    pdf.set_font("Arial", "B", 7); pdf.set_fill_color(240, 240, 240)
     pdf.cell(15, 8, "SR #", 1, 0, "C", True); pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
     pdf.cell(40, 8, "SPECS", 1, 0, "C", True); pdf.cell(15, 8, "QTY", 1, 0, "C", True)
-    pdf.cell(25, 8, "PRICE", 1, 0, "C", True); pdf.cell(25, 8, "TOTAL", 1, 1, "C", True)
+    pdf.cell(25, 8, "PRICE PER UNIT IN PKR", 1, 0, "C", True); pdf.cell(25, 8, "TOTAL PRICE IN PKR", 1, 1, "C", True)
 
 
 def _wrapped_line_count(pdf, text, width):
@@ -97,7 +196,7 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
 
     is_challan = (doc_type == "Delivery Challan")
 
-    # 1. Invoice No & Date
+    # 1. Invoice No & Date — Point 1: date shown as DD-MM-YYYY on every printed doc
     pdf.set_xy(15, 45)
     pdf.set_font("Arial", "B", 12); pdf.set_text_color(*blue_color)
     pdf.cell(10, 5, "No."); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", "", 12)
@@ -107,7 +206,7 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
 
     pdf.set_xy(140, 45); pdf.set_font("Arial", "B", 12); pdf.set_text_color(*blue_color)
     pdf.cell(10, 5, "Date"); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", "", 12)
-    date_val = f"{deal['date']}"
+    date_val = _format_date_ddmmyyyy(deal['date'])
     pdf.set_xy(155, 45); pdf.cell(pdf.get_string_width(date_val), 5, date_val)
     pdf.line(155, 50, 155 + pdf.get_string_width(date_val), 50)
 
@@ -143,8 +242,9 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
             pdf.cell(25, 8, "", 1, 0, "C")
             pdf.cell(25, 8, "", 1, 1, "C")
         else:
-            pdf.cell(25, 8, f"{item.unit_price:.0f}", 1, 0, "C")
-            pdf.cell(25, 8, f"{item.line_total:.0f}", 1, 1, "C")
+            # Point 3: comma-separated thousands
+            pdf.cell(25, 8, f"{item.unit_price:,.0f}", 1, 0, "C")
+            pdf.cell(25, 8, f"{item.line_total:,.0f}", 1, 1, "C")
 
     # Grand Total (skipped entirely for Delivery Challan since there's no pricing)
     # Point 5: if the item table ran all the way down to the bottom, make sure the
@@ -156,15 +256,20 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
     if not is_challan:
         pdf.set_x(125); pdf.set_font("Arial", "B", 10)
         pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
-        pdf.cell(25, 8, f"{deal['close_deal']:.0f}", 1, 1, "C", True)
+        pdf.cell(25, 8, f"{deal['close_deal']:,.0f}", 1, 1, "C", True)
+
+        # Point 4: Grand Total amount spelled out in ALL-CAPS words, right-aligned,
+        # directly below the Grand Total row.
+        pdf.set_x(15)
+        pdf.set_font("Arial", "B", 8)
+        pdf.cell(175, 5, f"{_number_to_words(deal['close_deal'])} RUPEES ONLY", align="R")
+        pdf.ln(6)
 
     # --- Footer Section Layout (Regards / Account Details / Stamp) ---
-    # Point 2: Quotation's account details/stamp now sit at the SAME fixed level as
-    # Invoice / Delivery Challan (just above the footer band), instead of floating
-    # right after a short Terms & Conditions block.
-    # Point 5: if the Terms text (or a long item table) would run down into that
-    # fixed zone, jump to a new page first instead of overlapping the logo/account
-    # details/stamp.
+    # Point 2 (earlier): Quotation's account details/stamp sit at the SAME fixed level
+    # as Invoice / Delivery Challan (just above the footer band).
+    # Point 5 (earlier): if the Terms text (or a long item table) would run down into
+    # that fixed zone, jump to a new page first instead of overlapping.
     show_terms = doc_type == "Quotation" and terms_text and terms_text.strip()
     divider_y = 222  # fixed position, same level as Invoice / Delivery Challan
 
@@ -173,12 +278,13 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
             pdf.add_page()
         terms_y = pdf.get_y() + 10
         pdf.set_xy(15, terms_y)
-        pdf.set_font("Arial", "B", 10)
+        # Point 8: Terms & Conditions text was too small — bumped up a size.
+        pdf.set_font("Arial", "B", 11)
         pdf.set_text_color(0, 0, 0)
-        pdf.cell(0, 5, "Terms & Conditions:", ln=1)
+        pdf.cell(0, 6, "Terms & Conditions:", ln=1)
         pdf.set_x(15)
-        pdf.set_font("Arial", "", 9)
-        pdf.multi_cell(90, 4, terms_text)
+        pdf.set_font("Arial", "", 10)
+        pdf.multi_cell(90, 5, terms_text)
 
     # Safety net: whatever was just printed (table / grand total / terms) must not
     # run into the fixed divider_y zone -- if it does, move to a new page so the
@@ -255,7 +361,7 @@ def generate_sheet_pdf(df, headers, col_widths, title, filename_prefix, orientat
 
     row_h = 7
     y = table_y + 8
-    bottom_limit = pdf.h - 45  # leave room for the letterhead footer band (point 5)
+    bottom_limit = pdf.h - 45  # leave room for the letterhead footer band
 
     for _, row in df.iterrows():
         if y + row_h > bottom_limit:
@@ -280,9 +386,9 @@ def _df_to_csv_bytes(df):
 
 
 def _apply_date_filter(df, date_col, start, end):
-    """Point 3: filter any sheet's dataframe down to a [start, end] date range
-    (inclusive), based on date_col. Rows whose date can't be parsed, or where no
-    date_col exists, are left as-is (untouched) rather than dropped."""
+    """Filters any sheet's dataframe down to a [start, end] date range (inclusive),
+    based on date_col. Rows whose date can't be parsed, or where no date_col exists,
+    are left as-is (untouched) rather than dropped."""
     if df is None or df.empty or date_col not in df.columns or start is None or end is None:
         return df
     parsed = pd.to_datetime(df[date_col], errors='coerce')
@@ -296,11 +402,13 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS business_deals
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, invoice_no TEXT, client TEXT,
-                  equipment TEXT, specs TEXT, close_deal REAL, actual_cost REAL, actual_price_per_item TEXT,
+                  equipment TEXT, specs TEXT, qty_per_item TEXT, close_deal REAL, actual_cost REAL,
+                  actual_price_per_item TEXT, other_expenses_per_item TEXT,
                   paid REAL, remaining REAL, profit REAL, team_member TEXT, status TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS deal_items
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, deal_id INTEGER, equipment TEXT, specs TEXT,
-                  quantity REAL, unit_price REAL, unit_actual_cost REAL, line_total REAL, line_actual_cost REAL,
+                  quantity REAL, unit_price REAL, unit_actual_cost REAL, other_expenses REAL,
+                  line_total REAL, line_actual_cost REAL,
                   FOREIGN KEY(deal_id) REFERENCES business_deals(id))''')
     c.execute('''CREATE TABLE IF NOT EXISTS credit_manual
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, client TEXT, total_payment REAL,
@@ -312,7 +420,8 @@ def init_db():
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, category TEXT,
                   description TEXT, amount REAL)''')
 
-    # Safety migration: add any columns missing from an older business_deals table on disk.
+    # Safety migration: add any columns missing from an older business_deals /
+    # deal_items table on disk (so nothing breaks on an existing enterprise.db).
     existing_cols = [row[1] for row in c.execute("PRAGMA table_info(business_deals)").fetchall()]
     if 'equipment' not in existing_cols:
         c.execute("ALTER TABLE business_deals ADD COLUMN equipment TEXT")
@@ -320,6 +429,14 @@ def init_db():
         c.execute("ALTER TABLE business_deals ADD COLUMN specs TEXT")
     if 'actual_price_per_item' not in existing_cols:
         c.execute("ALTER TABLE business_deals ADD COLUMN actual_price_per_item TEXT")
+    if 'qty_per_item' not in existing_cols:
+        c.execute("ALTER TABLE business_deals ADD COLUMN qty_per_item TEXT")
+    if 'other_expenses_per_item' not in existing_cols:
+        c.execute("ALTER TABLE business_deals ADD COLUMN other_expenses_per_item TEXT")
+
+    existing_item_cols = [row[1] for row in c.execute("PRAGMA table_info(deal_items)").fetchall()]
+    if 'other_expenses' not in existing_item_cols:
+        c.execute("ALTER TABLE deal_items ADD COLUMN other_expenses REAL DEFAULT 0")
 
     conn.commit(); conn.close()
 
@@ -377,7 +494,7 @@ if 'expense_df' not in st.session_state:
     st.session_state.expense_df = pd.read_sql("SELECT * FROM daily_expenses", conn)
     conn.close()
 
-# ---------------- SIDEBAR: DANGER ZONE (point 2 -- clear database) ----------------
+# ---------------- SIDEBAR: DANGER ZONE (clear database) ----------------
 with st.sidebar:
     st.header("⚙️ Settings")
     with st.expander("🗑️ Danger Zone: Database Clear Karein"):
@@ -410,14 +527,17 @@ with tab2:
             qty = st.session_state.item_qty_input
             price = st.session_state.item_price_input
             cost = st.session_state.item_cost_input
+            other = st.session_state.item_other_input
             st.session_state.temp_items.append({
                 'equipment': name,
                 'specs': st.session_state.item_specs_input,
                 'quantity': qty,
                 'unit_price': price,
                 'unit_actual_cost': cost,
+                'other_expenses': other,
                 'line_total': qty * price,
-                'line_actual_cost': qty * cost,
+                # Point 6: actual_cost = (actual cost per unit * qty) + other expenses
+                'line_actual_cost': qty * cost + other,
             })
             # reset only the product fields so client/team/paid stay filled
             st.session_state.item_name_input = ""
@@ -425,6 +545,7 @@ with tab2:
             st.session_state.item_qty_input = 1
             st.session_state.item_price_input = 0.0
             st.session_state.item_cost_input = 0.0
+            st.session_state.item_other_input = 0.0
             st.session_state.add_item_warning = False
         else:
             st.session_state.add_item_warning = True
@@ -460,27 +581,31 @@ with tab2:
             equipment_display = ", ".join(i['equipment'] for i in items)
             specs_display = "Multiple Items"
 
-        # ---- 1) Actual Price per item, comma separated (same order as equipment) ----
+        # Point 5: Qty per item, comma separated (same order as equipment)
+        qty_display = ", ".join(f"{i['quantity']:g}" for i in items)
+        # Actual Price per item (per-unit rate), comma separated
         actual_price_display = ", ".join(f"{i['unit_actual_cost']:.0f}" for i in items)
+        # Point 6: Other Expenses per item, comma separated
+        other_expenses_display = ", ".join(f"{i['other_expenses']:.0f}" for i in items)
 
         conn = sqlite3.connect('enterprise.db')
         cur = conn.cursor()
         # one deal = one row = one invoice_no, with totals summed across all items
         cur.execute("""INSERT INTO business_deals
-            (date, invoice_no, client, equipment, specs, close_deal, actual_cost, actual_price_per_item,
-             paid, remaining, profit, team_member, status)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (date, invoice_no, client, equipment, specs, qty_per_item, close_deal, actual_cost,
+             actual_price_per_item, other_expenses_per_item, paid, remaining, profit, team_member, status)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (datetime.now().strftime("%Y-%m-%d"), inv_no, st.session_state.deal_client, equipment_display,
-             specs_display, close_deal, actual_cost, actual_price_display, paid, remaining, profit,
-             st.session_state.deal_team_member, status))
+             specs_display, qty_display, close_deal, actual_cost, actual_price_display, other_expenses_display,
+             paid, remaining, profit, st.session_state.deal_team_member, status))
         deal_id = cur.lastrowid
 
         for item in items:
             cur.execute("""INSERT INTO deal_items
-                (deal_id, equipment, specs, quantity, unit_price, unit_actual_cost, line_total, line_actual_cost)
-                VALUES (?,?,?,?,?,?,?,?)""",
+                (deal_id, equipment, specs, quantity, unit_price, unit_actual_cost, other_expenses, line_total, line_actual_cost)
+                VALUES (?,?,?,?,?,?,?,?,?)""",
                 (deal_id, item['equipment'], item['specs'], item['quantity'], item['unit_price'],
-                 item['unit_actual_cost'], item['line_total'], item['line_actual_cost']))
+                 item['unit_actual_cost'], item['other_expenses'], item['line_total'], item['line_actual_cost']))
 
         conn.commit()
         st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
@@ -499,23 +624,36 @@ with tab2:
         # st.session_state[key] — for data_editor, session_state[key] only holds
         # a raw {edited_rows, added_rows, deleted_rows} dict, not a merged DataFrame.
         #
-        # Point 1: Records / Credit / Debit sheets are linked (Credit/Debit are
-        # derived live from st.session_state.business_df). If the user directly
-        # edits "remaining" down to 0 (instead of editing "paid"), that edit is
-        # now honored — "paid" is back-derived from it — so the row's status
-        # flips to "Paid" and it shows correctly (with remaining = 0) wherever
-        # Credit/Debit sheets pull from this table.
-        #
-        # Point 3: a small epsilon tolerance is used instead of exact float
-        # equality, so "remaining" edited down to 0 is always detected reliably
-        # (avoids floating point rounding making the comparison miss), and the
-        # status is then correctly flipped from Pending -> Paid.
+        # Point 7: if this is a multi-item deal and the Qty / Actual Price per Item /
+        # Other Expenses columns are all present with matching item counts, Actual
+        # Cost is recomputed from THOSE edited numbers (formula: qty*price+other,
+        # summed across items), and the underlying deal_items rows are kept in sync
+        # (position-matched by id order) so the printed Invoice/Quotation/Challan
+        # still matches what's shown here. Otherwise Actual Cost falls back to
+        # whatever value is already in that cell.
         conn = sqlite3.connect('enterprise.db')
         cur = conn.cursor()
         for row in edited.to_dict("records"):
+            deal_id = row.get('id')
             close_deal = row.get('close_deal', 0) or 0
-            actual_cost = row.get('actual_cost', 0) or 0
             paid = row.get('paid', 0) or 0
+
+            qty_list = _parse_csv_floats(row.get('qty_per_item'))
+            price_list = _parse_csv_floats(row.get('actual_price_per_item'))
+            other_list = _parse_csv_floats(row.get('other_expenses_per_item'))
+
+            if qty_list and price_list and other_list and len(qty_list) == len(price_list) == len(other_list):
+                line_costs = [q * p + o for q, p, o in zip(qty_list, price_list, other_list)]
+                actual_cost = sum(line_costs)
+                item_ids = [r[0] for r in cur.execute(
+                    "SELECT id FROM deal_items WHERE deal_id=? ORDER BY id", (int(deal_id),)).fetchall()]
+                if len(item_ids) == len(qty_list):
+                    for item_id, q, p, o, lc in zip(item_ids, qty_list, price_list, other_list, line_costs):
+                        cur.execute("UPDATE deal_items SET quantity=?, unit_actual_cost=?, other_expenses=?, "
+                                    "line_actual_cost=? WHERE id=?", (q, p, o, lc, item_id))
+            else:
+                actual_cost = row.get('actual_cost', 0) or 0
+
             remaining_edited = row.get('remaining', None)
             if remaining_edited is not None and abs(remaining_edited - (close_deal - paid)) > 0.01:
                 # user edited "remaining" directly -> treat it as the source of truth
@@ -525,12 +663,13 @@ with tab2:
                 remaining = close_deal - paid
             profit = close_deal - actual_cost
             status = "Paid" if remaining <= 0.01 else "Pending"
-            cur.execute("""UPDATE business_deals SET date=?, client=?, equipment=?, specs=?,
-                           close_deal=?, actual_cost=?, actual_price_per_item=?, paid=?, remaining=?,
-                           profit=?, team_member=?, status=? WHERE id=?""",
+            cur.execute("""UPDATE business_deals SET date=?, client=?, equipment=?, specs=?, qty_per_item=?,
+                           close_deal=?, actual_cost=?, actual_price_per_item=?, other_expenses_per_item=?,
+                           paid=?, remaining=?, profit=?, team_member=?, status=? WHERE id=?""",
                         (row.get('date'), row.get('client'), row.get('equipment'), row.get('specs'),
-                         close_deal, actual_cost, row.get('actual_price_per_item'), paid, remaining,
-                         profit, row.get('team_member'), status, row.get('id')))
+                         row.get('qty_per_item'), close_deal, actual_cost, row.get('actual_price_per_item'),
+                         row.get('other_expenses_per_item'), paid, remaining, profit, row.get('team_member'),
+                         status, deal_id))
         conn.commit()
         st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
         conn.close()
@@ -544,10 +683,12 @@ with tab2:
         item_name = c3.text_input("Equipment Name", key="item_name_input")
         item_specs = c4.text_input("Specs", key="item_specs_input")
 
-        c5, c6, c7 = st.columns(3)
+        # Point 6: "Actual Cost" -> "Actual Cost per Unit", plus a new "Other Expenses" box
+        c5, c6, c7, c8 = st.columns(4)
         item_qty = c5.number_input("Qty", min_value=1, format="%g", key="item_qty_input")
         item_price = c6.number_input("Unit Price", min_value=0.0, format="%g", key="item_price_input")
-        item_cost = c7.number_input("Actual Cost", min_value=0.0, format="%g", key="item_cost_input")
+        item_cost = c7.number_input("Actual Cost per Unit", min_value=0.0, format="%g", key="item_cost_input")
+        item_other = c8.number_input("Other Expenses", min_value=0.0, format="%g", key="item_other_input")
 
         paid = st.number_input("Payment sent by Client", min_value=0.0, format="%g", key="deal_paid")
 
@@ -560,11 +701,12 @@ with tab2:
         if st.session_state.temp_items:
             st.write("**Added Items:**")
             for idx, item in enumerate(st.session_state.temp_items):
-                ic1, ic2, ic3, ic4, ic5, ic6 = st.columns([2, 2, 1, 1, 1, 0.6])
+                ic1, ic2, ic3, ic4, ic5, ic6, ic7 = st.columns([2, 2, 1, 1, 1, 1, 0.6])
                 ic1.write(item['equipment']); ic2.write(item['specs'])
                 ic3.write(f"{item['quantity']:g}"); ic4.write(f"{item['unit_price']:.0f}")
-                ic5.write(f"{item['line_total']:.0f}")
-                ic6.button("🗑️", key=f"del_item_{idx}", on_click=_remove_item_cb, args=(idx,))
+                ic5.write(f"{item['other_expenses']:.0f}")
+                ic6.write(f"{item['line_total']:.0f}")
+                ic7.button("🗑️", key=f"del_item_{idx}", on_click=_remove_item_cb, args=(idx,))
             st.caption(f"Running Total: Rs {sum(i['line_total'] for i in st.session_state.temp_items):,.0f}")
 
     with st.form("deal_form", clear_on_submit=True):
@@ -578,7 +720,7 @@ with tab2:
     st.divider()
     st.subheader("📋 Records")
 
-    # ---- Date filter for Records (point 3) ----
+    # ---- Date filter for Records ----
     _all_dates = pd.to_datetime(st.session_state.business_df['date'], errors='coerce') \
         if not st.session_state.business_df.empty else pd.Series([], dtype='datetime64[ns]')
     _default_from = _all_dates.min().date() if not _all_dates.empty and _all_dates.notna().any() else date.today()
@@ -587,7 +729,7 @@ with tab2:
     records_from = rf1.date_input("From", value=_default_from, key="records_filter_from")
     records_to = rf2.date_input("To", value=_default_to, key="records_filter_to")
 
-    # ---- Build the display dataframe in the fixed column order (point 6) ----
+    # ---- Build the display dataframe in the fixed column order ----
     display_df = st.session_state.business_df.copy()
     for col in RECORD_DISPLAY_COLUMNS:
         if col not in display_df.columns:
@@ -595,7 +737,7 @@ with tab2:
     display_df = display_df[RECORD_DISPLAY_COLUMNS]
     display_df = _apply_date_filter(display_df, 'date', records_from, records_to)
 
-    # ---- Editable records sheet (point 7) ----
+    # ---- Editable records sheet ----
     edited_records = st.data_editor(
         display_df, use_container_width=True, hide_index=True, num_rows="fixed",
         disabled=["id"], key="records_editor_data"
@@ -604,9 +746,13 @@ with tab2:
         _save_records_edits(edited_records)
         st.success("Records update ho gaye!")
 
-    # ---- Records CSV / PDF export (point 3 & 5: landscape, "Records" heading, no stamp/account) ----
+    # ---- Records CSV / PDF export (landscape, "Records" heading, no stamp/account) ----
     if not display_df.empty:
         export_df = display_df.sort_values('id', ascending=False)  # most recent first
+        # Point 1 & 3: DD-MM-YYYY dates + comma-formatted money columns in the export
+        export_df = _prepare_export_df(
+            export_df, date_cols=['date'],
+            money_cols=['close_deal', 'actual_cost', 'paid', 'remaining', 'profit'])
         export_df_named = export_df.rename(columns=dict(zip(RECORD_DISPLAY_COLUMNS, RECORD_DISPLAY_HEADERS)))
         rc1, rc2 = st.columns(2)
         rc1.download_button("⬇️ Records CSV", data=_df_to_csv_bytes(export_df_named),
@@ -618,16 +764,7 @@ with tab2:
                                  mime="application/pdf", key="records_pdf_btn")
 
     # =====================================================================
-    # NEW (point 1): Add Items to an Existing Deal
-    # Every logged deal gets a small "➕ Items" button. Clicking it opens a
-    # mini add-item form for that specific deal. New items are appended to
-    # deal_items (existing items are kept, nothing is overwritten), and the
-    # parent business_deals row (close_deal / actual_cost / actual_price_per_item /
-    # remaining / profit / status / equipment / specs) is recalculated from
-    # ALL items now belonging to that deal. Because the Invoice/Quotation/
-    # Delivery Challan section below always re-reads deal_items fresh by
-    # deal_id, the updated items show up automatically the next time you
-    # print that deal — no separate step needed.
+    # Add Items to an Existing Deal
     # =====================================================================
     st.divider()
     st.subheader("🔧 Kisi Deal Mein Items Add Karein")
@@ -661,7 +798,7 @@ with tab2:
 
                 conn = sqlite3.connect('enterprise.db')
                 existing_items_df = pd.read_sql(
-                    "SELECT equipment, specs, quantity, unit_price, unit_actual_cost, line_total "
+                    "SELECT equipment, specs, quantity, unit_price, unit_actual_cost, other_expenses, line_total "
                     "FROM deal_items WHERE deal_id = ?", conn, params=(int(edit_deal_id),))
                 conn.close()
                 st.write("Is deal ke existing items:")
@@ -670,10 +807,11 @@ with tab2:
                 uc3, uc4 = st.columns(2)
                 uc3.text_input("Equipment Name", key="update_item_name_input")
                 uc4.text_input("Specs", key="update_item_specs_input")
-                uc5, uc6, uc7 = st.columns(3)
+                uc5, uc6, uc7, uc8 = st.columns(4)
                 uc5.number_input("Qty", min_value=1, format="%g", key="update_item_qty_input")
                 uc6.number_input("Unit Price", min_value=0.0, format="%g", key="update_item_price_input")
-                uc7.number_input("Actual Cost", min_value=0.0, format="%g", key="update_item_cost_input")
+                uc7.number_input("Actual Cost per Unit", min_value=0.0, format="%g", key="update_item_cost_input")
+                uc8.number_input("Other Expenses", min_value=0.0, format="%g", key="update_item_other_input")
 
                 def _add_update_item_cb():
                     name = st.session_state.update_item_name_input
@@ -681,20 +819,23 @@ with tab2:
                         qty = st.session_state.update_item_qty_input
                         price = st.session_state.update_item_price_input
                         cost = st.session_state.update_item_cost_input
+                        other = st.session_state.update_item_other_input
                         st.session_state.update_temp_items.append({
                             'equipment': name,
                             'specs': st.session_state.update_item_specs_input,
                             'quantity': qty,
                             'unit_price': price,
                             'unit_actual_cost': cost,
+                            'other_expenses': other,
                             'line_total': qty * price,
-                            'line_actual_cost': qty * cost,
+                            'line_actual_cost': qty * cost + other,
                         })
                         st.session_state.update_item_name_input = ""
                         st.session_state.update_item_specs_input = ""
                         st.session_state.update_item_qty_input = 1
                         st.session_state.update_item_price_input = 0.0
                         st.session_state.update_item_cost_input = 0.0
+                        st.session_state.update_item_other_input = 0.0
                         st.session_state.update_add_item_warning = False
                     else:
                         st.session_state.update_add_item_warning = True
@@ -710,11 +851,12 @@ with tab2:
                 if st.session_state.update_temp_items:
                     st.write("**Naye Items (abhi save nahi huay):**")
                     for idx, item in enumerate(st.session_state.update_temp_items):
-                        nic1, nic2, nic3, nic4, nic5, nic6 = st.columns([2, 2, 1, 1, 1, 0.6])
+                        nic1, nic2, nic3, nic4, nic5, nic6, nic7 = st.columns([2, 2, 1, 1, 1, 1, 0.6])
                         nic1.write(item['equipment']); nic2.write(item['specs'])
                         nic3.write(f"{item['quantity']:g}"); nic4.write(f"{item['unit_price']:.0f}")
-                        nic5.write(f"{item['line_total']:.0f}")
-                        nic6.button("🗑️", key=f"del_update_item_{idx}",
+                        nic5.write(f"{item['other_expenses']:.0f}")
+                        nic6.write(f"{item['line_total']:.0f}")
+                        nic7.button("🗑️", key=f"del_update_item_{idx}",
                                     on_click=_remove_update_item_cb, args=(idx,))
 
                     def _update_deal_cb():
@@ -726,10 +868,10 @@ with tab2:
                         cur = conn.cursor()
                         for item in new_items:
                             cur.execute("""INSERT INTO deal_items
-                                (deal_id, equipment, specs, quantity, unit_price, unit_actual_cost, line_total, line_actual_cost)
-                                VALUES (?,?,?,?,?,?,?,?)""",
+                                (deal_id, equipment, specs, quantity, unit_price, unit_actual_cost, other_expenses, line_total, line_actual_cost)
+                                VALUES (?,?,?,?,?,?,?,?,?)""",
                                 (deal_id, item['equipment'], item['specs'], item['quantity'], item['unit_price'],
-                                 item['unit_actual_cost'], item['line_total'], item['line_actual_cost']))
+                                 item['unit_actual_cost'], item['other_expenses'], item['line_total'], item['line_actual_cost']))
                         conn.commit()
 
                         # Recompute the parent deal's totals from ALL items now on file
@@ -743,7 +885,9 @@ with tab2:
                         else:
                             equipment_display = ", ".join(all_items_df['equipment'].tolist())
                             specs_display = "Multiple Items"
+                        qty_display = ", ".join(f"{v:g}" for v in all_items_df['quantity'].tolist())
                         actual_price_display = ", ".join(f"{v:.0f}" for v in all_items_df['unit_actual_cost'].tolist())
+                        other_expenses_display = ", ".join(f"{v:.0f}" for v in all_items_df['other_expenses'].tolist())
 
                         old_row = st.session_state.business_df[st.session_state.business_df['id'] == deal_id].iloc[0]
                         paid = old_row['paid']
@@ -751,10 +895,11 @@ with tab2:
                         profit = close_deal - actual_cost
                         status = "Paid" if remaining <= 0.01 else "Pending"
 
-                        cur.execute("""UPDATE business_deals SET equipment=?, specs=?, close_deal=?, actual_cost=?,
-                                       actual_price_per_item=?, remaining=?, profit=?, status=? WHERE id=?""",
-                                    (equipment_display, specs_display, close_deal, actual_cost, actual_price_display,
-                                     remaining, profit, status, deal_id))
+                        cur.execute("""UPDATE business_deals SET equipment=?, specs=?, qty_per_item=?, close_deal=?,
+                                       actual_cost=?, actual_price_per_item=?, other_expenses_per_item=?,
+                                       remaining=?, profit=?, status=? WHERE id=?""",
+                                    (equipment_display, specs_display, qty_display, close_deal, actual_cost,
+                                     actual_price_display, other_expenses_display, remaining, profit, status, deal_id))
                         conn.commit()
                         st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
                         conn.close()
@@ -795,8 +940,8 @@ with tab2:
                 "3. Delivery within 7-10 working days after confirmation."
             )
 
-        # ---- 6) PDF turant generate ho jaati hai selection ke saath — koi alag
-        # "Generate" step nahi, sirf ek click (download button) chahiye ----
+        # PDF turant generate ho jaati hai selection ke saath — koi alag "Generate"
+        # step nahi, sirf ek click (download button) chahiye.
         conn = sqlite3.connect('enterprise.db')
         deal_row = st.session_state.business_df[st.session_state.business_df['id'] == selected_id].iloc[0]
         items_df = pd.read_sql("SELECT * FROM deal_items WHERE deal_id = ?", conn, params=(int(selected_id),))
@@ -929,8 +1074,6 @@ with tab3:
 
     # ---------------- CREDIT SHEET ----------------
     with credit_tab:
-        # ---- Date filter for Credit Sheet (point 3) — applies to the deal-derived
-        # rows only, since manual entries don't carry a date field ----
         _credit_dates = pd.to_datetime(deals['date'], errors='coerce') if not deals.empty else pd.Series([], dtype='datetime64[ns]')
         _credit_default_from = _credit_dates.min().date() if not _credit_dates.empty and _credit_dates.notna().any() else date.today()
         _credit_default_to = _credit_dates.max().date() if not _credit_dates.empty and _credit_dates.notna().any() else date.today()
@@ -966,14 +1109,18 @@ with tab3:
         st.dataframe(full_credit_view, use_container_width=True, hide_index=True)
 
         # ---- Credit Sheet CSV / PDF export (landscape, "Credit Sheet" heading, no stamp/account) ----
-        cec1, cec2 = st.columns(2)
-        cec1.download_button("⬇️ Credit Sheet CSV", data=_df_to_csv_bytes(full_credit_view),
-                              file_name="credit_sheet.csv", mime="text/csv", key="credit_csv_btn")
-        credit_pdf_path = generate_sheet_pdf(full_credit_view, CREDIT_HEADERS, CREDIT_COL_WIDTHS,
-                                              "Credit Sheet", "credit_sheet", orientation="L")
-        with open(credit_pdf_path, "rb") as f:
-            cec2.download_button("⬇️ Credit Sheet PDF", data=f, file_name="credit_sheet.pdf",
-                                  mime="application/pdf", key="credit_pdf_btn")
+        if not full_credit_view.empty:
+            full_credit_export = _prepare_export_df(
+                full_credit_view,
+                money_cols=["Total Payment", "Paid by Client", "Remaining from Client"])
+            cec1, cec2 = st.columns(2)
+            cec1.download_button("⬇️ Credit Sheet CSV", data=_df_to_csv_bytes(full_credit_export),
+                                  file_name="credit_sheet.csv", mime="text/csv", key="credit_csv_btn")
+            credit_pdf_path = generate_sheet_pdf(full_credit_export, CREDIT_HEADERS, CREDIT_COL_WIDTHS,
+                                                  "Credit Sheet", "credit_sheet", orientation="L")
+            with open(credit_pdf_path, "rb") as f:
+                cec2.download_button("⬇️ Credit Sheet PDF", data=f, file_name="credit_sheet.pdf",
+                                      mime="application/pdf", key="credit_pdf_btn")
 
         st.divider()
         st.subheader("➕ Add Manual Entry (deals se bahar, jinse paise lene hain)")
@@ -996,8 +1143,6 @@ with tab3:
 
     # ---------------- DEBIT SHEET ----------------
     with debit_tab:
-        # ---- Date filter for Debit Sheet (point 3) — applies to the deal-derived
-        # rows only, since manual entries don't carry a date field ----
         _debit_dates = pd.to_datetime(deals['date'], errors='coerce') if not deals.empty else pd.Series([], dtype='datetime64[ns]')
         _debit_default_from = _debit_dates.min().date() if not _debit_dates.empty and _debit_dates.notna().any() else date.today()
         _debit_default_to = _debit_dates.max().date() if not _debit_dates.empty and _debit_dates.notna().any() else date.today()
@@ -1033,14 +1178,18 @@ with tab3:
         st.dataframe(full_debit_view, use_container_width=True, hide_index=True)
 
         # ---- Debit Sheet CSV / PDF export (landscape, "Debit Sheet" heading, no stamp/account) ----
-        dec1, dec2 = st.columns(2)
-        dec1.download_button("⬇️ Debit Sheet CSV", data=_df_to_csv_bytes(full_debit_view),
-                              file_name="debit_sheet.csv", mime="text/csv", key="debit_csv_btn")
-        debit_pdf_path = generate_sheet_pdf(full_debit_view, DEBIT_HEADERS, DEBIT_COL_WIDTHS,
-                                             "Debit Sheet", "debit_sheet", orientation="L")
-        with open(debit_pdf_path, "rb") as f:
-            dec2.download_button("⬇️ Debit Sheet PDF", data=f, file_name="debit_sheet.pdf",
-                                  mime="application/pdf", key="debit_pdf_btn")
+        if not full_debit_view.empty:
+            full_debit_export = _prepare_export_df(
+                full_debit_view,
+                money_cols=["Total Payment", "Paid to Client", "Remaining to be paid"])
+            dec1, dec2 = st.columns(2)
+            dec1.download_button("⬇️ Debit Sheet CSV", data=_df_to_csv_bytes(full_debit_export),
+                                  file_name="debit_sheet.csv", mime="text/csv", key="debit_csv_btn")
+            debit_pdf_path = generate_sheet_pdf(full_debit_export, DEBIT_HEADERS, DEBIT_COL_WIDTHS,
+                                                 "Debit Sheet", "debit_sheet", orientation="L")
+            with open(debit_pdf_path, "rb") as f:
+                dec2.download_button("⬇️ Debit Sheet PDF", data=f, file_name="debit_sheet.pdf",
+                                      mime="application/pdf", key="debit_pdf_btn")
 
         st.divider()
         st.subheader("➕ Add Manual Entry (deals se bahar, jinko paise dene hain)")
@@ -1083,7 +1232,6 @@ with tab3:
         st.divider()
         st.subheader("📋 Full Expense Sheet")
 
-        # ---- Date filter for Expense Sheet (point 3) ----
         _exp_dates = pd.to_datetime(st.session_state.expense_df['date'], errors='coerce') \
             if not st.session_state.expense_df.empty else pd.Series([], dtype='datetime64[ns]')
         _exp_default_from = _exp_dates.min().date() if not _exp_dates.empty and _exp_dates.notna().any() else date.today()
@@ -1097,17 +1245,17 @@ with tab3:
 
         st.dataframe(filtered_expense_df, use_container_width=True, hide_index=True)
 
-        # ---- Total of the entries currently shown (point 4) ----
         _expense_total = filtered_expense_df['amount'].sum() if not filtered_expense_df.empty else 0
         st.metric("💵 Total Expense (selected range)", f"Rs {_expense_total:,.0f}")
 
-        # ---- Expense Sheet CSV / PDF export (point 4: portrait, only 2 columns, "Expense Sheet" heading) ----
+        # ---- Expense Sheet CSV / PDF export (portrait, only 2 columns, "Expense Sheet" heading) ----
         if not filtered_expense_df.empty:
+            expense_export = _prepare_export_df(filtered_expense_df, date_cols=['date'], money_cols=['amount'])
             eec1, eec2 = st.columns(2)
             eec1.download_button("⬇️ Expense Sheet CSV",
-                                  data=_df_to_csv_bytes(filtered_expense_df),
+                                  data=_df_to_csv_bytes(expense_export),
                                   file_name="expense_sheet.csv", mime="text/csv", key="expense_csv_btn")
-            expense_pdf_df = filtered_expense_df[['description', 'amount']].rename(
+            expense_pdf_df = expense_export[['description', 'amount']].rename(
                 columns={'description': 'Description', 'amount': 'Amount'})
             expense_pdf_path = generate_sheet_pdf(expense_pdf_df, EXPENSE_HEADERS, EXPENSE_COL_WIDTHS,
                                                    "Expense Sheet", "expense_sheet", orientation="P")
