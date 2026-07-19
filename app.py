@@ -383,15 +383,152 @@ def _apply_date_filter(df, date_col, start, end):
 
 
 # =========================================================================
-# DATABASE CONNECTION (Turso libSQL cloud, with local sqlite fallback)
+# DATABASE CONNECTION (Turso, via plain HTTP -- no Rust/native build needed,
+# so it works on any Streamlit Cloud Python version). Falls back to local
+# sqlite3 if Turso secrets aren't configured (e.g. local dev without a
+# .streamlit/secrets.toml).
 # =========================================================================
+
+import requests
+import base64
+
+
+class _TursoCursor:
+    """Mimics just enough of the sqlite3 Cursor interface (execute,
+    fetchall, fetchone, description, lastrowid) for this app's needs."""
+
+    def __init__(self, conn):
+        self._conn = conn
+        self._rows = []
+        self.description = None
+        self.lastrowid = None
+        self.rowcount = -1
+
+    def execute(self, sql, params=None):
+        result = self._conn._run(sql, params or ())
+        self._rows = result["rows"]
+        self.description = result["description"]
+        self.lastrowid = result["last_insert_rowid"]
+        self.rowcount = result["affected_row_count"]
+        return self
+
+    def fetchall(self):
+        return self._rows
+
+    def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    def close(self):
+        pass
+
+
+class TursoHTTPConnection:
+    """Talks to a Turso database over its plain HTTP pipeline API
+    (https://docs.turso.tech/sdk/http/reference). No native/Rust
+    dependency at all -- just the `requests` library -- so it always
+    installs cleanly regardless of the Python version Streamlit Cloud
+    happens to be running."""
+
+    def __init__(self, url, token):
+        http_url = url.replace("libsql://", "https://").rstrip("/")
+        self._pipeline_url = http_url + "/v2/pipeline"
+        self._token = token
+        self._session = requests.Session()
+
+    @staticmethod
+    def _to_arg(v):
+        if v is None:
+            return {"type": "null"}
+        if isinstance(v, bool):
+            return {"type": "integer", "value": str(int(v))}
+        if isinstance(v, int):
+            return {"type": "integer", "value": str(v)}
+        if isinstance(v, float):
+            return {"type": "float", "value": v}
+        if isinstance(v, (bytes, bytearray)):
+            return {"type": "blob", "base64": base64.b64encode(v).decode("ascii")}
+        return {"type": "text", "value": str(v)}
+
+    @staticmethod
+    def _from_cell(cell):
+        if cell is None:
+            return None
+        t = cell.get("type")
+        if t == "null":
+            return None
+        if t == "integer":
+            return int(cell["value"])
+        if t == "float":
+            return float(cell["value"])
+        if t == "text":
+            return cell["value"]
+        if t == "blob":
+            return base64.b64decode(cell["base64"])
+        return cell.get("value")
+
+    def _run(self, sql, params):
+        args = [self._to_arg(p) for p in params]
+        payload = {"requests": [
+            {"type": "execute", "stmt": {"sql": sql, "args": args}},
+            {"type": "close"},
+        ]}
+        headers = {"Authorization": f"Bearer {self._token}", "Content-Type": "application/json"}
+        resp = self._session.post(self._pipeline_url, json=payload, headers=headers, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        results = data.get("results", [])
+        if not results:
+            raise RuntimeError("Turso: khaali response mila.")
+        first = results[0]
+        if first.get("type") == "error":
+            err = first.get("error", {})
+            raise RuntimeError(f"Turso SQL error: {err.get('message', err)}")
+        exec_result = first["response"]["result"]
+        cols = [c["name"] for c in exec_result.get("cols", [])]
+        rows = [tuple(self._from_cell(cell) for cell in row) for row in exec_result.get("rows", [])]
+        last_id = exec_result.get("last_insert_rowid")
+        last_id = int(last_id) if last_id is not None else None
+        return {
+            "rows": rows,
+            "description": [(c, None, None, None, None, None, None) for c in cols],
+            "last_insert_rowid": last_id,
+            "affected_row_count": exec_result.get("affected_row_count", 0),
+        }
+
+    def cursor(self):
+        return _TursoCursor(self)
+
+    def execute(self, sql, params=None):
+        cur = self.cursor()
+        cur.execute(sql, params)
+        return cur
+
+    def commit(self):
+        pass  # every statement is committed immediately over HTTP
+
+    def sync(self):
+        pass  # kept only so existing `if hasattr(conn, "sync")` calls stay harmless
+
+    def close(self):
+        pass
+
+
+def read_sql_df(query, conn, params=None):
+    """Drop-in replacement for read_sql_df() that works identically for both
+    sqlite3.Connection and TursoHTTPConnection (pandas' own read_sql only
+    recognizes real sqlite3.Connection objects)."""
+    cur = conn.cursor()
+    cur.execute(query, params or ())
+    cols = [d[0] for d in cur.description] if cur.description else []
+    rows = cur.fetchall()
+    return pd.DataFrame(rows, columns=cols)
+
 
 def get_connection():
     """Returns a database connection. If Turso secrets are configured, it
-    connects to the Turso cloud database (with a local embedded-replica
-    cache file), so data survives Streamlit Cloud reboots/redeploys.
-    Falls back to plain local sqlite3 if secrets aren't set (e.g. local
-    dev without a .streamlit/secrets.toml)."""
+    connects to the Turso cloud database over plain HTTP, so data survives
+    Streamlit Cloud reboots/redeploys. Falls back to local sqlite3 if
+    secrets aren't set (e.g. local dev without a .streamlit/secrets.toml)."""
     try:
         url = st.secrets.get("TURSO_DATABASE_URL")
         token = st.secrets.get("TURSO_AUTH_TOKEN")
@@ -400,10 +537,7 @@ def get_connection():
         token = None
 
     if url and token:
-        import libsql_experimental as libsql
-        conn = libsql.connect("enterprise.db", sync_url=url, auth_token=token)
-        conn.sync()
-        return conn
+        return TursoHTTPConnection(url, token)
 
     return sqlite3.connect('enterprise.db')
 
@@ -523,7 +657,7 @@ with st.sidebar:
 
 if 'business_df' not in st.session_state:
     conn = get_connection()
-    st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn); conn.close()
+    st.session_state.business_df = read_sql_df("SELECT * FROM business_deals", conn); conn.close()
 
 if 'temp_items' not in st.session_state:
     st.session_state.temp_items = []
@@ -539,13 +673,13 @@ if 'confirm_delete_deal_id' not in st.session_state:
 
 if 'credit_manual_df' not in st.session_state or 'debit_manual_df' not in st.session_state:
     conn = get_connection()
-    st.session_state.credit_manual_df = pd.read_sql("SELECT * FROM credit_manual", conn)
-    st.session_state.debit_manual_df = pd.read_sql("SELECT * FROM debit_manual", conn)
+    st.session_state.credit_manual_df = read_sql_df("SELECT * FROM credit_manual", conn)
+    st.session_state.debit_manual_df = read_sql_df("SELECT * FROM debit_manual", conn)
     conn.close()
 
 if 'expense_df' not in st.session_state:
     conn = get_connection()
-    st.session_state.expense_df = pd.read_sql("SELECT * FROM daily_expenses", conn)
+    st.session_state.expense_df = read_sql_df("SELECT * FROM daily_expenses", conn)
     conn.close()
 
 tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit/Expense Sheets", "📊 Analytics"])
@@ -634,7 +768,7 @@ with tab2:
         conn.commit()
         if hasattr(conn, "sync"):
             conn.sync()
-        st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
+        st.session_state.business_df = read_sql_df("SELECT * FROM business_deals", conn)
         conn.close()
 
         st.session_state.temp_items = []
@@ -685,7 +819,7 @@ with tab2:
         conn.commit()
         if hasattr(conn, "sync"):
             conn.sync()
-        st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
+        st.session_state.business_df = read_sql_df("SELECT * FROM business_deals", conn)
         conn.close()
 
     def _delete_deal_cb(deal_id):
@@ -698,7 +832,7 @@ with tab2:
         conn.commit()
         if hasattr(conn, "sync"):
             conn.sync()
-        st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
+        st.session_state.business_df = read_sql_df("SELECT * FROM business_deals", conn)
         conn.close()
         if st.session_state.get("editing_deal_id") == deal_id:
             st.session_state.editing_deal_id = None
@@ -754,7 +888,7 @@ with tab2:
         if hasattr(conn, "sync"):
             conn.sync()
 
-        all_items_df = pd.read_sql("SELECT * FROM deal_items WHERE deal_id=?", conn, params=(deal_id,))
+        all_items_df = read_sql_df("SELECT * FROM deal_items WHERE deal_id=?", conn, params=(deal_id,))
         if all_items_df.empty:
             close_deal = 0.0; actual_cost = 0.0
             equipment_display = ""; specs_display = ""
@@ -786,7 +920,7 @@ with tab2:
         conn.commit()
         if hasattr(conn, "sync"):
             conn.sync()
-        st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
+        st.session_state.business_df = read_sql_df("SELECT * FROM business_deals", conn)
         conn.close()
 
     with st.container(border=True):
@@ -918,7 +1052,7 @@ with tab2:
                 st.markdown(f"**Deal #{edit_deal_id} manage kar rahe hain:**")
 
                 conn = get_connection()
-                existing_items_df = pd.read_sql(
+                existing_items_df = read_sql_df(
                     "SELECT id, equipment, specs, quantity, unit_price, unit_actual_cost, other_expenses, line_total "
                     "FROM deal_items WHERE deal_id = ?", conn, params=(int(edit_deal_id),))
                 conn.close()
@@ -1009,7 +1143,7 @@ with tab2:
                         if hasattr(conn, "sync"):
                             conn.sync()
 
-                        all_items_df = pd.read_sql("SELECT * FROM deal_items WHERE deal_id=?", conn, params=(deal_id,))
+                        all_items_df = read_sql_df("SELECT * FROM deal_items WHERE deal_id=?", conn, params=(deal_id,))
                         close_deal = all_items_df['line_total'].sum()
                         actual_cost = all_items_df['line_actual_cost'].sum()
                         if len(all_items_df) == 1:
@@ -1036,7 +1170,7 @@ with tab2:
                         conn.commit()
                         if hasattr(conn, "sync"):
                             conn.sync()
-                        st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
+                        st.session_state.business_df = read_sql_df("SELECT * FROM business_deals", conn)
                         conn.close()
 
                         st.session_state.update_temp_items = []
@@ -1077,7 +1211,7 @@ with tab2:
 
         conn = get_connection()
         deal_row = st.session_state.business_df[st.session_state.business_df['id'] == selected_id].iloc[0]
-        items_df = pd.read_sql("SELECT * FROM deal_items WHERE deal_id = ?", conn, params=(int(selected_id),))
+        items_df = read_sql_df("SELECT * FROM deal_items WHERE deal_id = ?", conn, params=(int(selected_id),))
         conn.close()
 
         pdf_path = generate_pdf(deal_row, items_df, doc_type=doc_choice, terms_text=terms_text)
@@ -1110,7 +1244,7 @@ with tab3:
             conn.commit()
             if hasattr(conn, "sync"):
                 conn.sync()
-            st.session_state.credit_manual_df = pd.read_sql("SELECT * FROM credit_manual", conn)
+            st.session_state.credit_manual_df = read_sql_df("SELECT * FROM credit_manual", conn)
             conn.close()
             st.session_state.credit_new_client = ""
             st.session_state.credit_new_total = 0.0
@@ -1132,7 +1266,7 @@ with tab3:
             conn.commit()
             if hasattr(conn, "sync"):
                 conn.sync()
-            st.session_state.debit_manual_df = pd.read_sql("SELECT * FROM debit_manual", conn)
+            st.session_state.debit_manual_df = read_sql_df("SELECT * FROM debit_manual", conn)
             conn.close()
             st.session_state.debit_new_client = ""
             st.session_state.debit_new_total = 0.0
@@ -1154,7 +1288,7 @@ with tab3:
         conn.commit()
         if hasattr(conn, "sync"):
             conn.sync()
-        st.session_state.credit_manual_df = pd.read_sql("SELECT * FROM credit_manual", conn)
+        st.session_state.credit_manual_df = read_sql_df("SELECT * FROM credit_manual", conn)
         conn.close()
 
     def _save_debit_edits(edited):
@@ -1170,7 +1304,7 @@ with tab3:
         conn.commit()
         if hasattr(conn, "sync"):
             conn.sync()
-        st.session_state.debit_manual_df = pd.read_sql("SELECT * FROM debit_manual", conn)
+        st.session_state.debit_manual_df = read_sql_df("SELECT * FROM debit_manual", conn)
         conn.close()
 
     def _add_expense_cb():
@@ -1189,7 +1323,7 @@ with tab3:
         conn.commit()
         if hasattr(conn, "sync"):
             conn.sync()
-        st.session_state.expense_df = pd.read_sql("SELECT * FROM daily_expenses", conn)
+        st.session_state.expense_df = read_sql_df("SELECT * FROM daily_expenses", conn)
         conn.close()
         st.session_state.expense_desc_manual_input = ""
         st.session_state.expense_amount_input = 0.0
@@ -1207,7 +1341,7 @@ with tab3:
         conn.commit()
         if hasattr(conn, "sync"):
             conn.sync()
-        st.session_state.expense_df = pd.read_sql("SELECT * FROM daily_expenses", conn)
+        st.session_state.expense_df = read_sql_df("SELECT * FROM daily_expenses", conn)
         conn.close()
 
     deals = st.session_state.business_df
