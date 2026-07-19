@@ -178,15 +178,19 @@ def _draw_wrapped_row(pdf, values, widths, line_h, start_x, align="C", fill=Fals
     long-text column's box stretching while the rest stay short.
     `align` can be a single alignment for every column, or a list/tuple with
     one alignment per column (e.g. left-align a name column, center the rest).
-    `fill` draws a background fill behind the row (used for table headers)."""
+    `fill` draws a background fill behind the row (used for table headers).
+    Text is also centered VERTICALLY within the row's full height, so a
+    single-line cell (e.g. a header like "QTY") sits in the middle of its box
+    instead of stuck at the top."""
     aligns = list(align) if isinstance(align, (list, tuple)) else [align] * len(values)
-    n_lines = [_wrapped_line_count(pdf, v, w) for v, w in zip(values, widths)]
-    row_h = max(n_lines) * line_h
+    per_cell_lines = [_wrapped_line_count(pdf, v, w) for v, w in zip(values, widths)]
+    row_h = max(per_cell_lines) * line_h
     y0 = pdf.get_y()
     x = start_x
-    for v, w, a in zip(values, widths, aligns):
+    for v, w, a, nl in zip(values, widths, aligns, per_cell_lines):
         pdf.rect(x, y0, w, row_h, "DF" if fill else "D")
-        pdf.set_xy(x, y0)
+        y_text = y0 + (row_h - nl * line_h) / 2.0
+        pdf.set_xy(x, y_text)
         pdf.multi_cell(w, line_h, v, border=0, align=a)
         x += w
     pdf.set_xy(start_x, y0 + row_h)
@@ -239,8 +243,7 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
     for i, item in enumerate(items_df.itertuples(), start=1):
         price_txt = "" if is_challan else f"{item.unit_price:,.0f}"
         total_txt = "" if is_challan else f"{item.line_total:,.0f}"
-        # small leading space so left-aligned text doesn't touch the border line
-        values = [str(i), "  " + str(item.equipment), "  " + str(item.specs),
+        values = [str(i), str(item.equipment), str(item.specs),
                   f"{item.quantity:g}", price_txt, total_txt]
 
         n_lines = [_wrapped_line_count(pdf, v, w) for v, w in zip(values, item_widths)]
