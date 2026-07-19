@@ -171,15 +171,19 @@ def _wrapped_line_count(pdf, text, width):
 
 def _draw_wrapped_row(pdf, values, widths, line_h, start_x, align="C"):
     """Draws one table row where every cell auto-wraps long text onto multiple
-    lines instead of cutting it off. All cells in the row share the same
-    (tallest-needed) height so the row stays visually aligned."""
+    lines instead of cutting it off. The border for EVERY cell in the row is
+    drawn at the same full row height (the tallest cell's height) first, then
+    the (possibly multi-line) text is written on top without its own border --
+    this keeps the whole row's grid lines aligned instead of only the
+    long-text column's box stretching while the rest stay short."""
     n_lines = [_wrapped_line_count(pdf, v, w) for v, w in zip(values, widths)]
     row_h = max(n_lines) * line_h
     y0 = pdf.get_y()
     x = start_x
     for v, w in zip(values, widths):
+        pdf.rect(x, y0, w, row_h)
         pdf.set_xy(x, y0)
-        pdf.multi_cell(w, line_h, v, border=1, align=align)
+        pdf.multi_cell(w, line_h, v, border=0, align=align)
         x += w
     pdf.set_xy(start_x, y0 + row_h)
     return row_h
