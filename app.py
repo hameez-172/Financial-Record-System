@@ -141,9 +141,9 @@ def _draw_item_table_header(pdf, y):
     pdf.set_xy(25, y)
     pdf.set_draw_color(0, 153, 224)
     pdf.set_font("Arial", "B", 7); pdf.set_fill_color(240, 240, 240)
-    pdf.cell(15, 8, "SR #", 1, 0, "C", True); pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
-    pdf.cell(40, 8, "SPECS", 1, 0, "C", True); pdf.cell(15, 8, "QTY", 1, 0, "C", True)
-    pdf.cell(25, 8, "PRICE PER UNIT IN PKR", 1, 0, "C", True); pdf.cell(25, 8, "TOTAL PRICE IN PKR", 1, 1, "C", True)
+    headers = ["SR #", "PRODUCT", "SPECS", "QTY", "PRICE PER UNIT IN PKR", "TOTAL PRICE IN PKR"]
+    widths = [15, 45, 40, 15, 25, 25]
+    _draw_wrapped_row(pdf, headers, widths, line_h=3.3, start_x=25, align="C", fill=True)
 
 
 def _wrapped_line_count(pdf, text, width):
@@ -169,21 +169,25 @@ def _wrapped_line_count(pdf, text, width):
     return max(total_lines, 1)
 
 
-def _draw_wrapped_row(pdf, values, widths, line_h, start_x, align="C"):
+def _draw_wrapped_row(pdf, values, widths, line_h, start_x, align="C", fill=False):
     """Draws one table row where every cell auto-wraps long text onto multiple
     lines instead of cutting it off. The border for EVERY cell in the row is
     drawn at the same full row height (the tallest cell's height) first, then
     the (possibly multi-line) text is written on top without its own border --
     this keeps the whole row's grid lines aligned instead of only the
-    long-text column's box stretching while the rest stay short."""
+    long-text column's box stretching while the rest stay short.
+    `align` can be a single alignment for every column, or a list/tuple with
+    one alignment per column (e.g. left-align a name column, center the rest).
+    `fill` draws a background fill behind the row (used for table headers)."""
+    aligns = list(align) if isinstance(align, (list, tuple)) else [align] * len(values)
     n_lines = [_wrapped_line_count(pdf, v, w) for v, w in zip(values, widths)]
     row_h = max(n_lines) * line_h
     y0 = pdf.get_y()
     x = start_x
-    for v, w in zip(values, widths):
-        pdf.rect(x, y0, w, row_h)
+    for v, w, a in zip(values, widths, aligns):
+        pdf.rect(x, y0, w, row_h, "DF" if fill else "D")
         pdf.set_xy(x, y0)
-        pdf.multi_cell(w, line_h, v, border=0, align=align)
+        pdf.multi_cell(w, line_h, v, border=0, align=a)
         x += w
     pdf.set_xy(start_x, y0 + row_h)
     return row_h
@@ -229,12 +233,15 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
     pdf.set_draw_color(0, 153, 224)
 
     item_widths = [15, 45, 40, 15, 25, 25]
+    item_aligns = ["C", "L", "L", "C", "C", "C"]
     line_h = 5
 
     for i, item in enumerate(items_df.itertuples(), start=1):
         price_txt = "" if is_challan else f"{item.unit_price:,.0f}"
         total_txt = "" if is_challan else f"{item.line_total:,.0f}"
-        values = [str(i), str(item.equipment), str(item.specs), f"{item.quantity:g}", price_txt, total_txt]
+        # small leading space so left-aligned text doesn't touch the border line
+        values = [str(i), "  " + str(item.equipment), "  " + str(item.specs),
+                  f"{item.quantity:g}", price_txt, total_txt]
 
         n_lines = [_wrapped_line_count(pdf, v, w) for v, w in zip(values, item_widths)]
         row_h = max(n_lines) * line_h
@@ -243,7 +250,7 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
             pdf.add_page(); _draw_item_table_header(pdf, 45)
             pdf.set_font("Arial", "", 9); pdf.set_draw_color(0, 153, 224)
 
-        _draw_wrapped_row(pdf, values, item_widths, line_h, start_x=25)
+        _draw_wrapped_row(pdf, values, item_widths, line_h, start_x=25, align=item_aligns)
 
     if pdf.get_y() + 20 > 250:
         pdf.add_page()
