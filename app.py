@@ -382,9 +382,35 @@ def _apply_date_filter(df, date_col, start, end):
     return df[mask]
 
 
+# =========================================================================
+# DATABASE CONNECTION (Turso libSQL cloud, with local sqlite fallback)
+# =========================================================================
+
+def get_connection():
+    """Returns a database connection. If Turso secrets are configured, it
+    connects to the Turso cloud database (with a local embedded-replica
+    cache file), so data survives Streamlit Cloud reboots/redeploys.
+    Falls back to plain local sqlite3 if secrets aren't set (e.g. local
+    dev without a .streamlit/secrets.toml)."""
+    try:
+        url = st.secrets.get("TURSO_DATABASE_URL")
+        token = st.secrets.get("TURSO_AUTH_TOKEN")
+    except Exception:
+        url = None
+        token = None
+
+    if url and token:
+        import libsql_experimental as libsql
+        conn = libsql.connect("enterprise.db", sync_url=url, auth_token=token)
+        conn.sync()
+        return conn
+
+    return sqlite3.connect('enterprise.db')
+
+
 # --- APP SETUP ---
 def init_db():
-    conn = sqlite3.connect('enterprise.db')
+    conn = get_connection()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS business_deals
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, invoice_no TEXT, client TEXT,
@@ -422,7 +448,10 @@ def init_db():
     if 'other_expenses' not in existing_item_cols:
         c.execute("ALTER TABLE deal_items ADD COLUMN other_expenses REAL DEFAULT 0")
 
-    conn.commit(); conn.close()
+    conn.commit()
+    if hasattr(conn, "sync"):
+        conn.sync()
+    conn.close()
 
 
 init_db()
@@ -493,7 +522,7 @@ with st.sidebar:
         st.rerun()
 
 if 'business_df' not in st.session_state:
-    conn = sqlite3.connect('enterprise.db')
+    conn = get_connection()
     st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn); conn.close()
 
 if 'temp_items' not in st.session_state:
@@ -509,13 +538,13 @@ if 'confirm_delete_deal_id' not in st.session_state:
     st.session_state.confirm_delete_deal_id = None
 
 if 'credit_manual_df' not in st.session_state or 'debit_manual_df' not in st.session_state:
-    conn = sqlite3.connect('enterprise.db')
+    conn = get_connection()
     st.session_state.credit_manual_df = pd.read_sql("SELECT * FROM credit_manual", conn)
     st.session_state.debit_manual_df = pd.read_sql("SELECT * FROM debit_manual", conn)
     conn.close()
 
 if 'expense_df' not in st.session_state:
-    conn = sqlite3.connect('enterprise.db')
+    conn = get_connection()
     st.session_state.expense_df = pd.read_sql("SELECT * FROM daily_expenses", conn)
     conn.close()
 
@@ -584,7 +613,7 @@ with tab2:
         actual_price_display = ", ".join(f"{i['unit_actual_cost']:.0f}" for i in items)
         other_expenses_display = ", ".join(f"{i['other_expenses']:.0f}" for i in items)
 
-        conn = sqlite3.connect('enterprise.db')
+        conn = get_connection()
         cur = conn.cursor()
         cur.execute("""INSERT INTO business_deals
             (date, invoice_no, client, equipment, specs, qty_per_item, close_deal, actual_cost,
@@ -603,6 +632,8 @@ with tab2:
                  item['unit_actual_cost'], item['other_expenses'], item['line_total'], item['line_actual_cost']))
 
         conn.commit()
+        if hasattr(conn, "sync"):
+            conn.sync()
         st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
         conn.close()
 
@@ -613,7 +644,7 @@ with tab2:
         st.session_state.deal_message = ("success", f"Deal {inv_no} save ho gayi!")
 
     def _save_records_edits(edited):
-        conn = sqlite3.connect('enterprise.db')
+        conn = get_connection()
         cur = conn.cursor()
         for row in edited.to_dict("records"):
             deal_id = row.get('id')
@@ -652,17 +683,21 @@ with tab2:
                          row.get('other_expenses_per_item'), paid, remaining, profit, row.get('team_member'),
                          status, deal_id))
         conn.commit()
+        if hasattr(conn, "sync"):
+            conn.sync()
         st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
         conn.close()
 
     def _delete_deal_cb(deal_id):
         """Point 4: permanently deletes a whole deal (and its line items)."""
         deal_id = int(deal_id)
-        conn = sqlite3.connect('enterprise.db')
+        conn = get_connection()
         cur = conn.cursor()
         cur.execute("DELETE FROM deal_items WHERE deal_id=?", (deal_id,))
         cur.execute("DELETE FROM business_deals WHERE id=?", (deal_id,))
         conn.commit()
+        if hasattr(conn, "sync"):
+            conn.sync()
         st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
         conn.close()
         if st.session_state.get("editing_deal_id") == deal_id:
@@ -682,7 +717,7 @@ with tab2:
         existing deal, and also delete individual line items (via the editor's
         built-in row-delete). Recomputes the parent deal's totals afterwards."""
         deal_id = int(deal_id)
-        conn = sqlite3.connect('enterprise.db')
+        conn = get_connection()
         cur = conn.cursor()
         kept_ids = []
         for row in edited_df.to_dict("records"):
@@ -716,6 +751,8 @@ with tab2:
             if item_id not in kept_ids:
                 cur.execute("DELETE FROM deal_items WHERE id=?", (item_id,))
         conn.commit()
+        if hasattr(conn, "sync"):
+            conn.sync()
 
         all_items_df = pd.read_sql("SELECT * FROM deal_items WHERE deal_id=?", conn, params=(deal_id,))
         if all_items_df.empty:
@@ -747,6 +784,8 @@ with tab2:
                     (equipment_display, specs_display, qty_display, close_deal, actual_cost,
                      actual_price_display, other_expenses_display, remaining, profit, status, deal_id))
         conn.commit()
+        if hasattr(conn, "sync"):
+            conn.sync()
         st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
         conn.close()
 
@@ -878,7 +917,7 @@ with tab2:
             with st.container(border=True):
                 st.markdown(f"**Deal #{edit_deal_id} manage kar rahe hain:**")
 
-                conn = sqlite3.connect('enterprise.db')
+                conn = get_connection()
                 existing_items_df = pd.read_sql(
                     "SELECT id, equipment, specs, quantity, unit_price, unit_actual_cost, other_expenses, line_total "
                     "FROM deal_items WHERE deal_id = ?", conn, params=(int(edit_deal_id),))
@@ -958,7 +997,7 @@ with tab2:
                         new_items = st.session_state.update_temp_items
                         if not new_items:
                             return
-                        conn = sqlite3.connect('enterprise.db')
+                        conn = get_connection()
                         cur = conn.cursor()
                         for item in new_items:
                             cur.execute("""INSERT INTO deal_items
@@ -967,6 +1006,8 @@ with tab2:
                                 (deal_id, item['equipment'], item['specs'], item['quantity'], item['unit_price'],
                                  item['unit_actual_cost'], item['other_expenses'], item['line_total'], item['line_actual_cost']))
                         conn.commit()
+                        if hasattr(conn, "sync"):
+                            conn.sync()
 
                         all_items_df = pd.read_sql("SELECT * FROM deal_items WHERE deal_id=?", conn, params=(deal_id,))
                         close_deal = all_items_df['line_total'].sum()
@@ -993,6 +1034,8 @@ with tab2:
                                     (equipment_display, specs_display, qty_display, close_deal, actual_cost,
                                      actual_price_display, other_expenses_display, remaining, profit, status, deal_id))
                         conn.commit()
+                        if hasattr(conn, "sync"):
+                            conn.sync()
                         st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
                         conn.close()
 
@@ -1032,7 +1075,7 @@ with tab2:
                 "3. Delivery within 7-10 working days after confirmation."
             )
 
-        conn = sqlite3.connect('enterprise.db')
+        conn = get_connection()
         deal_row = st.session_state.business_df[st.session_state.business_df['id'] == selected_id].iloc[0]
         items_df = pd.read_sql("SELECT * FROM deal_items WHERE deal_id = ?", conn, params=(int(selected_id),))
         conn.close()
@@ -1060,11 +1103,13 @@ with tab3:
             total_payment = st.session_state.credit_new_total
             paid_by = st.session_state.credit_new_paid
             remaining = total_payment - paid_by
-            conn = sqlite3.connect('enterprise.db')
+            conn = get_connection()
             conn.execute(
                 "INSERT INTO credit_manual (client, total_payment, paid_by_client, remaining_from_client) VALUES (?,?,?,?)",
                 (name, total_payment, paid_by, remaining))
             conn.commit()
+            if hasattr(conn, "sync"):
+                conn.sync()
             st.session_state.credit_manual_df = pd.read_sql("SELECT * FROM credit_manual", conn)
             conn.close()
             st.session_state.credit_new_client = ""
@@ -1080,11 +1125,13 @@ with tab3:
             total_payment = st.session_state.debit_new_total
             paid_to = st.session_state.debit_new_paid
             remaining = total_payment - paid_to
-            conn = sqlite3.connect('enterprise.db')
+            conn = get_connection()
             conn.execute(
                 "INSERT INTO debit_manual (client, total_payment, paid_to_client, remaining_to_be_paid) VALUES (?,?,?,?)",
                 (name, total_payment, paid_to, remaining))
             conn.commit()
+            if hasattr(conn, "sync"):
+                conn.sync()
             st.session_state.debit_manual_df = pd.read_sql("SELECT * FROM debit_manual", conn)
             conn.close()
             st.session_state.debit_new_client = ""
@@ -1095,7 +1142,7 @@ with tab3:
             st.session_state.debit_add_warning = True
 
     def _save_credit_edits(edited):
-        conn = sqlite3.connect('enterprise.db')
+        conn = get_connection()
         conn.execute("DELETE FROM credit_manual")
         for row in edited.to_dict("records"):
             if str(row.get('client', '')).strip():
@@ -1105,11 +1152,13 @@ with tab3:
                     "INSERT INTO credit_manual (client, total_payment, paid_by_client, remaining_from_client) VALUES (?,?,?,?)",
                     (row['client'], total_payment, paid_by, total_payment - paid_by))
         conn.commit()
+        if hasattr(conn, "sync"):
+            conn.sync()
         st.session_state.credit_manual_df = pd.read_sql("SELECT * FROM credit_manual", conn)
         conn.close()
 
     def _save_debit_edits(edited):
-        conn = sqlite3.connect('enterprise.db')
+        conn = get_connection()
         conn.execute("DELETE FROM debit_manual")
         for row in edited.to_dict("records"):
             if str(row.get('client', '')).strip():
@@ -1119,6 +1168,8 @@ with tab3:
                     "INSERT INTO debit_manual (client, total_payment, paid_to_client, remaining_to_be_paid) VALUES (?,?,?,?)",
                     (row['client'], total_payment, paid_to, total_payment - paid_to))
         conn.commit()
+        if hasattr(conn, "sync"):
+            conn.sync()
         st.session_state.debit_manual_df = pd.read_sql("SELECT * FROM debit_manual", conn)
         conn.close()
 
@@ -1131,11 +1182,13 @@ with tab3:
             return
         amount = st.session_state.expense_amount_input
         exp_date = st.session_state.expense_date_input
-        conn = sqlite3.connect('enterprise.db')
+        conn = get_connection()
         conn.execute(
             "INSERT INTO daily_expenses (date, category, description, amount) VALUES (?,?,?,?)",
             (str(exp_date), category, description, amount))
         conn.commit()
+        if hasattr(conn, "sync"):
+            conn.sync()
         st.session_state.expense_df = pd.read_sql("SELECT * FROM daily_expenses", conn)
         conn.close()
         st.session_state.expense_desc_manual_input = ""
@@ -1143,7 +1196,7 @@ with tab3:
         st.session_state.expense_add_warning = False
 
     def _save_expense_edits(edited):
-        conn = sqlite3.connect('enterprise.db')
+        conn = get_connection()
         conn.execute("DELETE FROM daily_expenses")
         for row in edited.to_dict("records"):
             desc = row.get('description', '')
@@ -1152,6 +1205,8 @@ with tab3:
                     "INSERT INTO daily_expenses (date, category, description, amount) VALUES (?,?,?,?)",
                     (row.get('date'), row.get('category'), desc, row.get('amount', 0) or 0))
         conn.commit()
+        if hasattr(conn, "sync"):
+            conn.sync()
         st.session_state.expense_df = pd.read_sql("SELECT * FROM daily_expenses", conn)
         conn.close()
 
