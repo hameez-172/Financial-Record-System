@@ -13,8 +13,6 @@ import plotly.express as px
 #  CSV export and PDF export)
 # =========================================================================
 
-# Point 5 & 6: Qty column added right after Specs; Other Expenses column added
-# right after Actual Price/Item. actual_price_per_item still sits after actual_cost.
 RECORD_DISPLAY_COLUMNS = ['id', 'date', 'client', 'equipment', 'specs', 'qty_per_item',
                           'close_deal', 'actual_cost', 'actual_price_per_item',
                           'other_expenses_per_item', 'paid', 'remaining', 'profit',
@@ -32,7 +30,7 @@ DEBIT_HEADERS = ["Client Name", "Id No", "Total Payment", "Paid to Client", "Rem
 DEBIT_COL_WIDTHS = [60, 35, 60, 60, 62]  # sums to 277mm
 
 EXPENSE_HEADERS = ["Description", "Amount"]
-EXPENSE_COL_WIDTHS = [130, 60]  # sums to 190mm (A4 portrait usable width) -- point 4: only 2 columns
+EXPENSE_COL_WIDTHS = [130, 60]  # sums to 190mm (A4 portrait usable width)
 
 
 # =========================================================================
@@ -40,8 +38,6 @@ EXPENSE_COL_WIDTHS = [130, 60]  # sums to 190mm (A4 portrait usable width) -- po
 # =========================================================================
 
 def _format_date_ddmmyyyy(value):
-    """Point 1: any downloaded document (PDF or CSV) shows dates as DD-MM-YYYY,
-    regardless of the internal YYYY-MM-DD storage format used on-screen/in filters."""
     try:
         return pd.to_datetime(value).strftime("%d-%m-%Y")
     except Exception:
@@ -49,8 +45,6 @@ def _format_date_ddmmyyyy(value):
 
 
 def _fmt_money(value):
-    """Point 3: comma-separated thousands wherever a document PRINTS a plain
-    money amount, e.g. 1000 -> 1,000, 28000 -> 28,000, however large."""
     try:
         return f"{float(value):,.0f}"
     except (TypeError, ValueError):
@@ -58,11 +52,6 @@ def _fmt_money(value):
 
 
 def _prepare_export_df(df, date_cols=(), money_cols=()):
-    """Builds an export-ready copy of a dataframe: dates -> DD-MM-YYYY, plain
-    numeric money columns -> comma-formatted. Comma-joined multi-item text
-    columns (qty_per_item / actual_price_per_item / other_expenses_per_item)
-    are intentionally left untouched, since adding thousands-commas there
-    would clash with the comma already used as the per-item separator."""
     out = df.copy()
     for col in date_cols:
         if col in out.columns:
@@ -74,8 +63,6 @@ def _prepare_export_df(df, date_cols=(), money_cols=()):
 
 
 def _parse_csv_floats(s):
-    """Parses a comma-separated string of numbers (e.g. qty_per_item) back into
-    a list of floats, skipping blank/unparsable pieces."""
     if s is None:
         return []
     out = []
@@ -112,7 +99,6 @@ def _three_digit_words(n):
 
 
 def _number_to_words(n):
-    """Point 4: converts a Grand Total amount into ALL-CAPS English words."""
     n = int(round(n))
     if n == 0:
         return "ZERO"
@@ -129,9 +115,7 @@ def _number_to_words(n):
     return ("MINUS " + result) if negative else result
 
 
-# --- PDF GENERATOR CLASS (Letterhead / header / footer design UNCHANGED in spirit,
-#     just made width/height-aware so the same letterhead works in both
-#     portrait and landscape pages) ---
+# --- PDF GENERATOR CLASS ---
 class InvoicePDF(FPDF):
     def header(self):
         self.set_fill_color(0, 51, 102); self.rect(10, 8, 22, 8, "F")
@@ -155,9 +139,7 @@ class InvoicePDF(FPDF):
 
 def _draw_item_table_header(pdf, y):
     pdf.set_xy(25, y)
-    pdf.set_draw_color(0, 153, 224) # Blue Border
-    # Point 2: longer header text (PRICE PER UNIT IN PKR / TOTAL PRICE IN PKR) needs
-    # a smaller font to fit the same column widths as before.
+    pdf.set_draw_color(0, 153, 224)
     pdf.set_font("Arial", "B", 7); pdf.set_fill_color(240, 240, 240)
     pdf.cell(15, 8, "SR #", 1, 0, "C", True); pdf.cell(45, 8, "PRODUCT", 1, 0, "C", True)
     pdf.cell(40, 8, "SPECS", 1, 0, "C", True); pdf.cell(15, 8, "QTY", 1, 0, "C", True)
@@ -165,10 +147,12 @@ def _draw_item_table_header(pdf, y):
 
 
 def _wrapped_line_count(pdf, text, width):
-    """Rough estimate of how many lines a multi_cell(width, ...) call will take,
-    used only to size the (optional) Terms & Conditions block for Quotations."""
+    """Estimates how many lines a multi_cell(width, ...) call will take for the
+    given text -- used both for sizing the Terms & Conditions block AND (now)
+    for auto-growing table rows so long names/specs never get cut off, they
+    just wrap onto extra lines and the row grows taller automatically."""
     total_lines = 0
-    for paragraph in text.split("\n"):
+    for paragraph in str(text).split("\n"):
         if paragraph.strip() == "":
             total_lines += 1
             continue
@@ -185,18 +169,31 @@ def _wrapped_line_count(pdf, text, width):
     return max(total_lines, 1)
 
 
+def _draw_wrapped_row(pdf, values, widths, line_h, start_x, align="C"):
+    """Draws one table row where every cell auto-wraps long text onto multiple
+    lines instead of cutting it off. All cells in the row share the same
+    (tallest-needed) height so the row stays visually aligned."""
+    n_lines = [_wrapped_line_count(pdf, v, w) for v, w in zip(values, widths)]
+    row_h = max(n_lines) * line_h
+    y0 = pdf.get_y()
+    x = start_x
+    for v, w in zip(values, widths):
+        pdf.set_xy(x, y0)
+        pdf.multi_cell(w, line_h, v, border=1, align=align)
+        x += w
+    pdf.set_xy(start_x, y0 + row_h)
+    return row_h
+
+
 def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
-    """Generates Invoice / Quotation / Delivery Challan (always portrait, single record).
-    Delivery Challan: same layout as Invoice but PRICE/TOTAL cells are left blank
-    (not even 0) and no Grand Total is printed."""
     pdf = InvoicePDF()
     pdf.add_page()
     blue_color = (0, 153, 224)
-    pdf.set_draw_color(*blue_color) # Default draw color set to blue
+    pdf.set_draw_color(*blue_color)
 
     is_challan = (doc_type == "Delivery Challan")
 
-    # 1. Invoice No & Date — Point 1: date shown as DD-MM-YYYY on every printed doc
+    # 1. Invoice No & Date
     pdf.set_xy(15, 45)
     pdf.set_font("Arial", "B", 12); pdf.set_text_color(*blue_color)
     pdf.cell(10, 5, "No."); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", "", 12)
@@ -210,46 +207,40 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
     pdf.set_xy(155, 45); pdf.cell(pdf.get_string_width(date_val), 5, date_val)
     pdf.line(155, 50, 155 + pdf.get_string_width(date_val), 50)
 
-    # 2. Client Name — bold, black underline exactly as long as the name itself
+    # 2. Client Name
     pdf.set_text_color(0, 0, 0); pdf.set_xy(15, 58); pdf.set_font("Arial", "B", 12)
     pdf.cell(10, 6, "To: ")
     name_x = pdf.get_x()
     client_name = f"{deal['client']}"
-    pdf.set_font("Arial", "B", 12)  # bold client name
+    pdf.set_font("Arial", "B", 12)
     pdf.cell(pdf.get_string_width(client_name), 6, client_name)
-    pdf.set_draw_color(0, 0, 0)  # black underline just for the client name
+    pdf.set_draw_color(0, 0, 0)
     pdf.line(name_x, 64, name_x + pdf.get_string_width(client_name), 64)
 
-    # 3. Table — INVOICE / QUOTATION / DELIVERY CHALLAN title depending on what was picked
+    # 3. Table
     pdf.set_xy(0, 70); pdf.set_font("Arial", "B", 16); pdf.cell(210, 8, doc_type.upper(), align="C")
 
     _draw_item_table_header(pdf, 85)
     pdf.set_font("Arial", "", 9)
-    pdf.set_draw_color(0, 153, 224) # Blue border for rows
+    pdf.set_draw_color(0, 153, 224)
+
+    item_widths = [15, 45, 40, 15, 25, 25]
+    line_h = 5
 
     for i, item in enumerate(items_df.itertuples(), start=1):
-        if pdf.get_y() + 8 > 250:
+        price_txt = "" if is_challan else f"{item.unit_price:,.0f}"
+        total_txt = "" if is_challan else f"{item.line_total:,.0f}"
+        values = [str(i), str(item.equipment), str(item.specs), f"{item.quantity:g}", price_txt, total_txt]
+
+        n_lines = [_wrapped_line_count(pdf, v, w) for v, w in zip(values, item_widths)]
+        row_h = max(n_lines) * line_h
+
+        if pdf.get_y() + row_h > 250:
             pdf.add_page(); _draw_item_table_header(pdf, 45)
             pdf.set_font("Arial", "", 9); pdf.set_draw_color(0, 153, 224)
 
-        pdf.set_x(25)
-        pdf.cell(15, 8, str(i), 1, 0, "C")
-        pdf.cell(45, 8, str(item.equipment), 1)
-        pdf.cell(40, 8, str(item.specs), 1)
-        pdf.cell(15, 8, f"{item.quantity:g}", 1, 0, "C")
-        if is_challan:
-            # Delivery Challan: price/total left completely blank, not even 0
-            pdf.cell(25, 8, "", 1, 0, "C")
-            pdf.cell(25, 8, "", 1, 1, "C")
-        else:
-            # Point 3: comma-separated thousands
-            pdf.cell(25, 8, f"{item.unit_price:,.0f}", 1, 0, "C")
-            pdf.cell(25, 8, f"{item.line_total:,.0f}", 1, 1, "C")
+        _draw_wrapped_row(pdf, values, item_widths, line_h, start_x=25)
 
-    # Grand Total (skipped entirely for Delivery Challan since there's no pricing)
-    # Point 5: if the item table ran all the way down to the bottom, make sure the
-    # Grand Total row itself still has room -- otherwise start a fresh page first
-    # instead of letting it collide with the footer band.
     if pdf.get_y() + 20 > 250:
         pdf.add_page()
 
@@ -258,27 +249,19 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
         pdf.cell(40, 8, "Grand Total", 1, 0, "C", True)
         pdf.cell(25, 8, f"{deal['close_deal']:,.0f}", 1, 1, "C", True)
 
-        # Point 4: Grand Total amount spelled out in ALL-CAPS words, right-aligned,
-        # directly below the Grand Total row.
         pdf.set_x(15)
         pdf.set_font("Arial", "B", 8)
         pdf.cell(175, 5, f"{_number_to_words(deal['close_deal'])} RUPEES ONLY", align="R")
         pdf.ln(6)
 
-    # --- Footer Section Layout (Regards / Account Details / Stamp) ---
-    # Point 2 (earlier): Quotation's account details/stamp sit at the SAME fixed level
-    # as Invoice / Delivery Challan (just above the footer band).
-    # Point 5 (earlier): if the Terms text (or a long item table) would run down into
-    # that fixed zone, jump to a new page first instead of overlapping.
     show_terms = doc_type == "Quotation" and terms_text and terms_text.strip()
-    divider_y = 222  # fixed position, same level as Invoice / Delivery Challan
+    divider_y = 222
 
     if show_terms:
         if pdf.get_y() + 10 > 195:
             pdf.add_page()
         terms_y = pdf.get_y() + 10
         pdf.set_xy(15, terms_y)
-        # Point 8: Terms & Conditions text was too small — bumped up a size.
         pdf.set_font("Arial", "B", 11)
         pdf.set_text_color(0, 0, 0)
         pdf.cell(0, 6, "Terms & Conditions:", ln=1)
@@ -286,21 +269,14 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
         pdf.set_font("Arial", "", 10)
         pdf.multi_cell(90, 5, terms_text)
 
-    # Safety net: whatever was just printed (table / grand total / terms) must not
-    # run into the fixed divider_y zone -- if it does, move to a new page so the
-    # account details/stamp never overlap it.
     if pdf.get_y() + 10 > divider_y:
         pdf.add_page()
 
     content_y = divider_y + 3
 
-    # Footer se thoda upar line draw karna
     pdf.set_draw_color(200, 200, 200)
     pdf.line(10, divider_y, 200, divider_y)
 
-    # --- Regards & Account Details (Left side) ---
-    # Stamp + Account Details appear on Invoice / Quotation / Delivery Challan only
-    # (never on the Records / Credit / Debit / Expense sheet exports).
     pdf.set_xy(15, content_y)
     pdf.set_font("Arial", "I", 9)
     pdf.cell(90, 5, "Regards,", ln=1)
@@ -311,15 +287,14 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
 
     pdf.set_x(15)
     pdf.set_font("Arial", "B", 9)
-    pdf.set_text_color(0, 51, 102) # Dark Blue
+    pdf.set_text_color(0, 51, 102)
     pdf.cell(90, 5, "Account Details:", ln=1)
 
     pdf.set_x(15)
     pdf.set_font("Arial", "", 8)
-    pdf.set_text_color(0, 0, 0) # Black
+    pdf.set_text_color(0, 0, 0)
     pdf.multi_cell(90, 4, "Badar Diagnostics & Medical Equipment\nFaysal Bank\n0155007000005585")
 
-    # --- Stamp (Right side) ---
     if os.path.exists("stamp.jpg"):
         pdf.image("stamp.jpg", x=140, y=content_y, w=35)
 
@@ -330,10 +305,6 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
 
 # =========================================================================
 # GENERIC SHEET EXPORT (Records / Credit Sheet / Debit Sheet / Expense Sheet)
-# Records / Credit / Debit -> landscape, no stamp / account details, title
-# in the usual title-slot says "Records" / "Credit Sheet" / "Debit Sheet".
-# Expense Sheet -> portrait, only 2 columns (Description, Amount), no
-# stamp / account details, title says "Expense Sheet".
 # =========================================================================
 
 def _draw_sheet_table_header(pdf, headers, col_widths, y, start_x=10):
@@ -359,21 +330,24 @@ def generate_sheet_pdf(df, headers, col_widths, title, filename_prefix, orientat
     _draw_sheet_table_header(pdf, headers, col_widths, table_y, start_x)
     pdf.set_font("Arial", "", 8); pdf.set_text_color(0, 0, 0); pdf.set_draw_color(0, 153, 224)
 
-    row_h = 7
+    line_h = 5
     y = table_y + 8
     bottom_limit = pdf.h - 45  # leave room for the letterhead footer band
 
     for _, row in df.iterrows():
+        values = ["" if pd.isna(v) else str(v) for v in row.tolist()]
+        n_lines = [_wrapped_line_count(pdf, v, w) for v, w in zip(values, col_widths)]
+        row_h = max(n_lines) * line_h
+
         if y + row_h > bottom_limit:
             pdf.add_page()
             y = title_y
             _draw_sheet_table_header(pdf, headers, col_widths, y, start_x)
             pdf.set_font("Arial", "", 8); pdf.set_draw_color(0, 153, 224)
             y += 8
+
         pdf.set_xy(start_x, y)
-        for val, w in zip(row.tolist(), col_widths):
-            text = "" if pd.isna(val) else str(val)
-            pdf.cell(w, row_h, text, 1, 0, "C")
+        _draw_wrapped_row(pdf, values, col_widths, line_h, start_x)
         y += row_h
 
     path = f"{filename_prefix}.pdf"
@@ -386,9 +360,6 @@ def _df_to_csv_bytes(df):
 
 
 def _apply_date_filter(df, date_col, start, end):
-    """Filters any sheet's dataframe down to a [start, end] date range (inclusive),
-    based on date_col. Rows whose date can't be parsed, or where no date_col exists,
-    are left as-is (untouched) rather than dropped."""
     if df is None or df.empty or date_col not in df.columns or start is None or end is None:
         return df
     parsed = pd.to_datetime(df[date_col], errors='coerce')
@@ -420,8 +391,6 @@ def init_db():
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, category TEXT,
                   description TEXT, amount REAL)''')
 
-    # Safety migration: add any columns missing from an older business_deals /
-    # deal_items table on disk (so nothing breaks on an existing enterprise.db).
     existing_cols = [row[1] for row in c.execute("PRAGMA table_info(business_deals)").fetchall()]
     if 'equipment' not in existing_cols:
         c.execute("ALTER TABLE business_deals ADD COLUMN equipment TEXT")
@@ -441,32 +410,6 @@ def init_db():
     conn.commit(); conn.close()
 
 
-def _clear_database_cb():
-    """DANGER: wipes every table (Records / Deal Items / Credit / Debit / Expenses)
-    and resets the AUTOINCREMENT counters, so the next entries start again from ID 1."""
-    conn = sqlite3.connect('enterprise.db')
-    cur = conn.cursor()
-    cur.execute("DELETE FROM business_deals")
-    cur.execute("DELETE FROM deal_items")
-    cur.execute("DELETE FROM credit_manual")
-    cur.execute("DELETE FROM debit_manual")
-    cur.execute("DELETE FROM daily_expenses")
-    cur.execute("DELETE FROM sqlite_sequence")  # reset autoincrement ids
-    conn.commit()
-
-    st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
-    st.session_state.credit_manual_df = pd.read_sql("SELECT * FROM credit_manual", conn)
-    st.session_state.debit_manual_df = pd.read_sql("SELECT * FROM debit_manual", conn)
-    st.session_state.expense_df = pd.read_sql("SELECT * FROM daily_expenses", conn)
-    conn.close()
-
-    st.session_state.temp_items = []
-    st.session_state.update_temp_items = []
-    st.session_state.editing_deal_id = None
-    st.session_state.confirm_clear_db = False
-    st.session_state.db_clear_message = ("success", "Poora database clear ho gaya! Sab records, sheets aur expenses delete ho gaye hain.")
-
-
 init_db()
 st.set_page_config(page_title="Hameez Enterprise Hub", layout="wide")
 
@@ -483,6 +426,9 @@ if 'update_temp_items' not in st.session_state:
 if 'editing_deal_id' not in st.session_state:
     st.session_state.editing_deal_id = None
 
+if 'confirm_delete_deal_id' not in st.session_state:
+    st.session_state.confirm_delete_deal_id = None
+
 if 'credit_manual_df' not in st.session_state or 'debit_manual_df' not in st.session_state:
     conn = sqlite3.connect('enterprise.db')
     st.session_state.credit_manual_df = pd.read_sql("SELECT * FROM credit_manual", conn)
@@ -494,32 +440,11 @@ if 'expense_df' not in st.session_state:
     st.session_state.expense_df = pd.read_sql("SELECT * FROM daily_expenses", conn)
     conn.close()
 
-# ---------------- SIDEBAR: DANGER ZONE (clear database) ----------------
-with st.sidebar:
-    st.header("⚙️ Settings")
-    with st.expander("🗑️ Danger Zone: Database Clear Karein"):
-        st.warning("Yeh action tamam Records, Deal Items, Credit/Debit Sheets aur Expenses hamesha "
-                   "ke liye delete kar dega. Yeh action wapas (undo) nahi ho sakta!")
-        st.checkbox("Haan, mujhe pata hai yeh permanent hai aur main sab kuch delete karna chahta/chahti hoon",
-                    key="confirm_clear_db")
-        if st.session_state.get("confirm_clear_db"):
-            st.button("🗑️ Poora Database Clear Karein", on_click=_clear_database_cb,
-                      key="clear_db_btn", type="primary", use_container_width=True)
-    if st.session_state.get("db_clear_message"):
-        level, text = st.session_state.db_clear_message
-        getattr(st, level)(text)
-        st.session_state.db_clear_message = None
-
 tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit/Expense Sheets", "📊 Analytics"])
 
 # ---------------- TAB 2: BUSINESS DEALS ----------------
 with tab2:
     st.title("💼 Business Deals")
-
-    # ---- callback helpers ----
-    # IMPORTANT: widget-tied session_state keys can only be reset INSIDE a callback
-    # (on_click), never in the normal script body after that widget has already
-    # rendered in the same run — that's what was causing the StreamlitAPIException.
 
     def _add_item_cb():
         name = st.session_state.item_name_input
@@ -536,10 +461,8 @@ with tab2:
                 'unit_actual_cost': cost,
                 'other_expenses': other,
                 'line_total': qty * price,
-                # Point 6: actual_cost = (actual cost per unit * qty) + other expenses
                 'line_actual_cost': qty * cost + other,
             })
-            # reset only the product fields so client/team/paid stay filled
             st.session_state.item_name_input = ""
             st.session_state.item_specs_input = ""
             st.session_state.item_qty_input = 1
@@ -555,7 +478,6 @@ with tab2:
             st.session_state.temp_items.pop(idx)
 
     def _log_deal_cb():
-        # ---- Without at least one added product, the deal can't be logged ----
         if not st.session_state.temp_items:
             st.session_state.deal_message = ("error", "Pehle kam az kam ek product add karein.")
             return
@@ -572,8 +494,6 @@ with tab2:
         status = "Paid" if remaining <= 0 else "Pending"
         inv_no = f"INV-{datetime.now().strftime('%Y%m%d%H%M%S')}"
 
-        # 1 item -> real equipment/specs. >1 items -> comma separated equipment
-        # names, specs column just says "Multiple Items".
         if len(items) == 1:
             equipment_display = items[0]['equipment']
             specs_display = items[0]['specs']
@@ -581,16 +501,12 @@ with tab2:
             equipment_display = ", ".join(i['equipment'] for i in items)
             specs_display = "Multiple Items"
 
-        # Point 5: Qty per item, comma separated (same order as equipment)
         qty_display = ", ".join(f"{i['quantity']:g}" for i in items)
-        # Actual Price per item (per-unit rate), comma separated
         actual_price_display = ", ".join(f"{i['unit_actual_cost']:.0f}" for i in items)
-        # Point 6: Other Expenses per item, comma separated
         other_expenses_display = ", ".join(f"{i['other_expenses']:.0f}" for i in items)
 
         conn = sqlite3.connect('enterprise.db')
         cur = conn.cursor()
-        # one deal = one row = one invoice_no, with totals summed across all items
         cur.execute("""INSERT INTO business_deals
             (date, invoice_no, client, equipment, specs, qty_per_item, close_deal, actual_cost,
              actual_price_per_item, other_expenses_per_item, paid, remaining, profit, team_member, status)
@@ -618,19 +534,6 @@ with tab2:
         st.session_state.deal_message = ("success", f"Deal {inv_no} save ho gayi!")
 
     def _save_records_edits(edited):
-        # Records (Business Deals) editable table — recompute remaining/profit/status
-        # from the edited numbers so the sheet always stays internally consistent.
-        # NOTE: `edited` must be the DataFrame RETURNED by st.data_editor(), not
-        # st.session_state[key] — for data_editor, session_state[key] only holds
-        # a raw {edited_rows, added_rows, deleted_rows} dict, not a merged DataFrame.
-        #
-        # Point 7: if this is a multi-item deal and the Qty / Actual Price per Item /
-        # Other Expenses columns are all present with matching item counts, Actual
-        # Cost is recomputed from THOSE edited numbers (formula: qty*price+other,
-        # summed across items), and the underlying deal_items rows are kept in sync
-        # (position-matched by id order) so the printed Invoice/Quotation/Challan
-        # still matches what's shown here. Otherwise Actual Cost falls back to
-        # whatever value is already in that cell.
         conn = sqlite3.connect('enterprise.db')
         cur = conn.cursor()
         for row in edited.to_dict("records"):
@@ -656,7 +559,6 @@ with tab2:
 
             remaining_edited = row.get('remaining', None)
             if remaining_edited is not None and abs(remaining_edited - (close_deal - paid)) > 0.01:
-                # user edited "remaining" directly -> treat it as the source of truth
                 remaining = remaining_edited
                 paid = close_deal - remaining
             else:
@@ -674,6 +576,101 @@ with tab2:
         st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
         conn.close()
 
+    def _delete_deal_cb(deal_id):
+        """Point 4: permanently deletes a whole deal (and its line items)."""
+        deal_id = int(deal_id)
+        conn = sqlite3.connect('enterprise.db')
+        cur = conn.cursor()
+        cur.execute("DELETE FROM deal_items WHERE deal_id=?", (deal_id,))
+        cur.execute("DELETE FROM business_deals WHERE id=?", (deal_id,))
+        conn.commit()
+        st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
+        conn.close()
+        if st.session_state.get("editing_deal_id") == deal_id:
+            st.session_state.editing_deal_id = None
+            st.session_state.update_temp_items = []
+        st.session_state.confirm_delete_deal_id = None
+        st.session_state.deal_delete_message = ("success", f"Deal #{deal_id} permanently delete ho gayi.")
+
+    def _request_delete_deal_cb(deal_id):
+        st.session_state.confirm_delete_deal_id = int(deal_id)
+
+    def _cancel_delete_deal_cb():
+        st.session_state.confirm_delete_deal_id = None
+
+    def _save_existing_items_cb(deal_id, edited_df):
+        """Point 3: lets you correct a wrong equipment/specs/qty/price entry on an
+        existing deal, and also delete individual line items (via the editor's
+        built-in row-delete). Recomputes the parent deal's totals afterwards."""
+        deal_id = int(deal_id)
+        conn = sqlite3.connect('enterprise.db')
+        cur = conn.cursor()
+        kept_ids = []
+        for row in edited_df.to_dict("records"):
+            if not str(row.get('equipment', '')).strip():
+                continue
+            qty = row.get('quantity') or 0
+            price = row.get('unit_price') or 0
+            cost = row.get('unit_actual_cost') or 0
+            other = row.get('other_expenses') or 0
+            line_total = qty * price
+            line_actual_cost = qty * cost + other
+            raw_id = row.get('id')
+            if raw_id is not None and not pd.isna(raw_id):
+                item_id = int(raw_id)
+                kept_ids.append(item_id)
+                cur.execute("""UPDATE deal_items SET equipment=?, specs=?, quantity=?, unit_price=?,
+                               unit_actual_cost=?, other_expenses=?, line_total=?, line_actual_cost=?
+                               WHERE id=?""",
+                            (row.get('equipment'), row.get('specs'), qty, price, cost, other,
+                             line_total, line_actual_cost, item_id))
+            else:
+                cur.execute("""INSERT INTO deal_items
+                    (deal_id, equipment, specs, quantity, unit_price, unit_actual_cost, other_expenses, line_total, line_actual_cost)
+                    VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (deal_id, row.get('equipment'), row.get('specs'), qty, price, cost, other,
+                     line_total, line_actual_cost))
+
+        all_existing_ids = [r[0] for r in cur.execute(
+            "SELECT id FROM deal_items WHERE deal_id=?", (deal_id,)).fetchall()]
+        for item_id in all_existing_ids:
+            if item_id not in kept_ids:
+                cur.execute("DELETE FROM deal_items WHERE id=?", (item_id,))
+        conn.commit()
+
+        all_items_df = pd.read_sql("SELECT * FROM deal_items WHERE deal_id=?", conn, params=(deal_id,))
+        if all_items_df.empty:
+            close_deal = 0.0; actual_cost = 0.0
+            equipment_display = ""; specs_display = ""
+            qty_display = ""; actual_price_display = ""; other_expenses_display = ""
+        else:
+            close_deal = all_items_df['line_total'].sum()
+            actual_cost = all_items_df['line_actual_cost'].sum()
+            if len(all_items_df) == 1:
+                equipment_display = all_items_df.iloc[0]['equipment']
+                specs_display = all_items_df.iloc[0]['specs']
+            else:
+                equipment_display = ", ".join(all_items_df['equipment'].tolist())
+                specs_display = "Multiple Items"
+            qty_display = ", ".join(f"{v:g}" for v in all_items_df['quantity'].tolist())
+            actual_price_display = ", ".join(f"{v:.0f}" for v in all_items_df['unit_actual_cost'].tolist())
+            other_expenses_display = ", ".join(f"{v:.0f}" for v in all_items_df['other_expenses'].tolist())
+
+        old_row = st.session_state.business_df[st.session_state.business_df['id'] == deal_id].iloc[0]
+        paid = old_row['paid']
+        remaining = close_deal - paid
+        profit = close_deal - actual_cost
+        status = "Paid" if remaining <= 0.01 else "Pending"
+
+        cur.execute("""UPDATE business_deals SET equipment=?, specs=?, qty_per_item=?, close_deal=?,
+                       actual_cost=?, actual_price_per_item=?, other_expenses_per_item=?,
+                       remaining=?, profit=?, status=? WHERE id=?""",
+                    (equipment_display, specs_display, qty_display, close_deal, actual_cost,
+                     actual_price_display, other_expenses_display, remaining, profit, status, deal_id))
+        conn.commit()
+        st.session_state.business_df = pd.read_sql("SELECT * FROM business_deals", conn)
+        conn.close()
+
     with st.container(border=True):
         c1, c2 = st.columns(2)
         client = c1.text_input("Client Name/Hospital", key="deal_client")
@@ -683,7 +680,6 @@ with tab2:
         item_name = c3.text_input("Equipment Name", key="item_name_input")
         item_specs = c4.text_input("Specs", key="item_specs_input")
 
-        # Point 6: "Actual Cost" -> "Actual Cost per Unit", plus a new "Other Expenses" box
         c5, c6, c7, c8 = st.columns(4)
         item_qty = c5.number_input("Qty", min_value=1, format="%g", key="item_qty_input")
         item_price = c6.number_input("Unit Price", min_value=0.0, format="%g", key="item_price_input")
@@ -692,12 +688,10 @@ with tab2:
 
         paid = st.number_input("Payment sent by Client", min_value=0.0, format="%g", key="deal_paid")
 
-        # ---- Add Product button: properly appends the item and clears item fields ----
         st.button("➕ Add to List", use_container_width=True, on_click=_add_item_cb)
         if st.session_state.get("add_item_warning"):
             st.warning("Equipment Name likhna zaroori hai.")
 
-        # show what's queued so far, so you know what will go into the invoice
         if st.session_state.temp_items:
             st.write("**Added Items:**")
             for idx, item in enumerate(st.session_state.temp_items):
@@ -720,7 +714,6 @@ with tab2:
     st.divider()
     st.subheader("📋 Records")
 
-    # ---- Date filter for Records ----
     _all_dates = pd.to_datetime(st.session_state.business_df['date'], errors='coerce') \
         if not st.session_state.business_df.empty else pd.Series([], dtype='datetime64[ns]')
     _default_from = _all_dates.min().date() if not _all_dates.empty and _all_dates.notna().any() else date.today()
@@ -729,7 +722,6 @@ with tab2:
     records_from = rf1.date_input("From", value=_default_from, key="records_filter_from")
     records_to = rf2.date_input("To", value=_default_to, key="records_filter_to")
 
-    # ---- Build the display dataframe in the fixed column order ----
     display_df = st.session_state.business_df.copy()
     for col in RECORD_DISPLAY_COLUMNS:
         if col not in display_df.columns:
@@ -737,7 +729,6 @@ with tab2:
     display_df = display_df[RECORD_DISPLAY_COLUMNS]
     display_df = _apply_date_filter(display_df, 'date', records_from, records_to)
 
-    # ---- Editable records sheet ----
     edited_records = st.data_editor(
         display_df, use_container_width=True, hide_index=True, num_rows="fixed",
         disabled=["id"], key="records_editor_data"
@@ -746,10 +737,8 @@ with tab2:
         _save_records_edits(edited_records)
         st.success("Records update ho gaye!")
 
-    # ---- Records CSV / PDF export (landscape, "Records" heading, no stamp/account) ----
     if not display_df.empty:
-        export_df = display_df.sort_values('id', ascending=False)  # most recent first
-        # Point 1 & 3: DD-MM-YYYY dates + comma-formatted money columns in the export
+        export_df = display_df.sort_values('id', ascending=False)
         export_df = _prepare_export_df(
             export_df, date_cols=['date'],
             money_cols=['close_deal', 'actual_cost', 'paid', 'remaining', 'profit'])
@@ -764,13 +753,17 @@ with tab2:
                                  mime="application/pdf", key="records_pdf_btn")
 
     # =====================================================================
-    # Add Items to an Existing Deal
+    # Manage Deals — Edit / Correct / Add Items / Delete Whole Deal
     # =====================================================================
     st.divider()
-    st.subheader("🔧 Kisi Deal Mein Items Add Karein")
-    st.caption("Neeche diye gaye ➕ Items button se kisi bhi purani deal mein naye items add karein — "
-               "Total, Remaining, Profit sab khud update ho jayega, aur uski Invoice/Quotation/Challan "
-               "bhi update shuda items ke sath print hogi.")
+    st.subheader("🔧 Deals Manage Karein (Items Add/Edit/Delete)")
+    st.caption("➕ Items = naye items add karein. ✏️ Correct = ghalat equipment/specs/qty/price theek karein "
+               "ya koi item delete karein. 🗑️ Delete = puri deal hamesha ke liye delete karein.")
+
+    if st.session_state.get("deal_delete_message"):
+        level, text = st.session_state.deal_delete_message
+        getattr(st, level)(text)
+        st.session_state.deal_delete_message = None
 
     if not st.session_state.business_df.empty:
 
@@ -778,31 +771,53 @@ with tab2:
             st.session_state.editing_deal_id = deal_id
             st.session_state.update_temp_items = []
 
-        header_c1, header_c2, header_c3, header_c4 = st.columns([1, 3, 2, 1])
+        header_c1, header_c2, header_c3, header_c4, header_c5 = st.columns([1, 3, 2, 1, 1])
         header_c1.markdown("**No.**"); header_c2.markdown("**Client**")
-        header_c3.markdown("**Close Deal**"); header_c4.markdown("**Action**")
+        header_c3.markdown("**Close Deal**"); header_c4.markdown("**Manage**"); header_c5.markdown("**Delete**")
 
         for _, drow in st.session_state.business_df.sort_values('id', ascending=False).iterrows():
-            rcol1, rcol2, rcol3, rcol4 = st.columns([1, 3, 2, 1])
-            rcol1.write(f"#{int(drow['id'])}")
+            d_id = int(drow['id'])
+            rcol1, rcol2, rcol3, rcol4, rcol5 = st.columns([1, 3, 2, 1, 1])
+            rcol1.write(f"#{d_id}")
             rcol2.write(drow['client'])
             rcol3.write(f"Rs {drow['close_deal']:,.0f}")
-            rcol4.button("➕ Items", key=f"edit_deal_btn_{int(drow['id'])}",
-                        on_click=_select_deal_to_edit_cb, args=(int(drow['id']),))
+            rcol4.button("✏️ Manage", key=f"edit_deal_btn_{d_id}",
+                        on_click=_select_deal_to_edit_cb, args=(d_id,))
+
+            if st.session_state.get("confirm_delete_deal_id") == d_id:
+                dcol_a, dcol_b = rcol5.columns(2)
+                dcol_a.button("✅", key=f"confirm_del_{d_id}", on_click=_delete_deal_cb, args=(d_id,),
+                              type="primary", help="Confirm delete")
+                dcol_b.button("✖️", key=f"cancel_del_{d_id}", on_click=_cancel_delete_deal_cb,
+                              help="Cancel")
+            else:
+                rcol5.button("🗑️", key=f"del_deal_btn_{d_id}", on_click=_request_delete_deal_cb, args=(d_id,))
 
         if st.session_state.get("editing_deal_id") is not None:
             edit_deal_id = st.session_state.editing_deal_id
 
             with st.container(border=True):
-                st.markdown(f"**Deal #{edit_deal_id} mein items add kar rahe hain:**")
+                st.markdown(f"**Deal #{edit_deal_id} manage kar rahe hain:**")
 
                 conn = sqlite3.connect('enterprise.db')
                 existing_items_df = pd.read_sql(
-                    "SELECT equipment, specs, quantity, unit_price, unit_actual_cost, other_expenses, line_total "
+                    "SELECT id, equipment, specs, quantity, unit_price, unit_actual_cost, other_expenses, line_total "
                     "FROM deal_items WHERE deal_id = ?", conn, params=(int(edit_deal_id),))
                 conn.close()
-                st.write("Is deal ke existing items:")
-                st.dataframe(existing_items_df, use_container_width=True, hide_index=True)
+
+                st.write("**✏️ Existing items (yahan se ghalti theek karein, ya row delete karein):**")
+                edited_existing_items = st.data_editor(
+                    existing_items_df, use_container_width=True, hide_index=True,
+                    num_rows="dynamic", disabled=["id", "line_total"],
+                    key=f"existing_items_editor_{edit_deal_id}"
+                )
+                if st.button("💾 Correction Save Karein", key=f"save_existing_items_btn_{edit_deal_id}"):
+                    _save_existing_items_cb(edit_deal_id, edited_existing_items)
+                    st.success(f"Deal #{edit_deal_id} ke items update ho gaye!")
+                    st.rerun()
+
+                st.divider()
+                st.write("**➕ Deal mein bilkul naya item add karein:**")
 
                 uc3, uc4 = st.columns(2)
                 uc3.text_input("Equipment Name", key="update_item_name_input")
@@ -874,8 +889,6 @@ with tab2:
                                  item['unit_actual_cost'], item['other_expenses'], item['line_total'], item['line_actual_cost']))
                         conn.commit()
 
-                        # Recompute the parent deal's totals from ALL items now on file
-                        # for this deal_id (existing rows + the ones just inserted).
                         all_items_df = pd.read_sql("SELECT * FROM deal_items WHERE deal_id=?", conn, params=(deal_id,))
                         close_deal = all_items_df['line_total'].sum()
                         actual_cost = all_items_df['line_actual_cost'].sum()
@@ -910,14 +923,14 @@ with tab2:
                             "success", f"Deal #{deal_id} update ho gayi — naye items add hogaye! "
                                        f"Ab is deal ki Invoice/Quotation/Challan updated items ke sath print hogi.")
 
-                    st.button("💾 Deal Update Karein (Items Save Karein)", key="update_deal_btn",
+                    st.button("💾 Deal Update Karein (Naye Items Save Karein)", key="update_deal_btn",
                              on_click=_update_deal_cb, type="primary")
 
                 def _cancel_edit_deal_cb():
                     st.session_state.editing_deal_id = None
                     st.session_state.update_temp_items = []
 
-                st.button("✖️ Cancel", key="cancel_edit_deal_btn", on_click=_cancel_edit_deal_cb)
+                st.button("✖️ Band Karein", key="cancel_edit_deal_btn", on_click=_cancel_edit_deal_cb)
 
         if st.session_state.get("update_deal_message"):
             level, text = st.session_state.update_deal_message
@@ -940,8 +953,6 @@ with tab2:
                 "3. Delivery within 7-10 working days after confirmation."
             )
 
-        # PDF turant generate ho jaati hai selection ke saath — koi alag "Generate"
-        # step nahi, sirf ek click (download button) chahiye.
         conn = sqlite3.connect('enterprise.db')
         deal_row = st.session_state.business_df[st.session_state.business_df['id'] == selected_id].iloc[0]
         items_df = pd.read_sql("SELECT * FROM deal_items WHERE deal_id = ?", conn, params=(int(selected_id),))
@@ -1108,7 +1119,6 @@ with tab3:
         st.subheader("📋 Full Credit Sheet")
         st.dataframe(full_credit_view, use_container_width=True, hide_index=True)
 
-        # ---- Credit Sheet CSV / PDF export (landscape, "Credit Sheet" heading, no stamp/account) ----
         if not full_credit_view.empty:
             full_credit_export = _prepare_export_df(
                 full_credit_view,
@@ -1177,7 +1187,6 @@ with tab3:
         st.subheader("📋 Full Debit Sheet")
         st.dataframe(full_debit_view, use_container_width=True, hide_index=True)
 
-        # ---- Debit Sheet CSV / PDF export (landscape, "Debit Sheet" heading, no stamp/account) ----
         if not full_debit_view.empty:
             full_debit_export = _prepare_export_df(
                 full_debit_view,
@@ -1248,7 +1257,6 @@ with tab3:
         _expense_total = filtered_expense_df['amount'].sum() if not filtered_expense_df.empty else 0
         st.metric("💵 Total Expense (selected range)", f"Rs {_expense_total:,.0f}")
 
-        # ---- Expense Sheet CSV / PDF export (portrait, only 2 columns, "Expense Sheet" heading) ----
         if not filtered_expense_df.empty:
             expense_export = _prepare_export_df(filtered_expense_df, date_cols=['date'], money_cols=['amount'])
             eec1, eec2 = st.columns(2)
@@ -1279,7 +1287,6 @@ with tab3:
 with tab4:
     st.title("📊 Performance Insights")
 
-    # ---- Summary cards: monthly payments received, pending payments, profit, expense ----
     this_month = datetime.now().strftime("%Y-%m")
     biz = st.session_state.business_df.copy()
     if not biz.empty:
