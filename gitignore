@@ -1,0 +1,14 @@
+# Never upload your real credentials
+.streamlit/secrets.toml
+
+# Never upload your live database (has your real client/deal data)
+enterprise.db
+
+# Generated PDFs from testing
+*.pdf
+
+# Python junk
+__pycache__/
+*.pyc
+.venv/
+venv/
