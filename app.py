@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime, date
 from fpdf import FPDF
 import os
+import hashlib
 import plotly.express as px
 
 # =========================================================================
@@ -426,6 +427,70 @@ def init_db():
 
 init_db()
 st.set_page_config(page_title="Hameez Enterprise Hub", layout="wide")
+
+
+# =========================================================================
+# LOGIN GATE — koi bhi username/password ke bagair app mein andar nahi ja
+# sakta. Credentials .streamlit/secrets.toml mein rakhne behtar hain (code
+# se alag), lekin agar secrets.toml nahi mila to neeche diye gaye default
+# username/password use hote hain -- INHEIN ZAROOR BADAL DEIN.
+# =========================================================================
+_DEFAULT_USERNAME = "admin"
+_DEFAULT_PASSWORD = "changeme123"  # <-- pehli dafa login karke turant badal dein
+
+
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(str(password).encode("utf-8")).hexdigest()
+
+
+def _get_credentials():
+    try:
+        username = st.secrets.get("APP_USERNAME", _DEFAULT_USERNAME)
+    except Exception:
+        username = _DEFAULT_USERNAME
+    try:
+        password_hash = st.secrets.get("APP_PASSWORD_HASH", None)
+    except Exception:
+        password_hash = None
+    if not password_hash:
+        password_hash = _hash_password(_DEFAULT_PASSWORD)
+    return username, password_hash
+
+
+def _login_gate():
+    if st.session_state.get("authenticated"):
+        return True
+
+    st.markdown(
+        "<div style='max-width:420px;margin:80px auto 0 auto;'>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("## 🔒 Hameez Enterprise Hub")
+    st.caption("Jaari rakhne ke liye login karein.")
+    with st.form("login_form"):
+        entered_username = st.text_input("Username")
+        entered_password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Login", use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    if submitted:
+        correct_username, correct_password_hash = _get_credentials()
+        if entered_username == correct_username and _hash_password(entered_password) == correct_password_hash:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Username ya password ghalat hai.")
+    return False
+
+
+if not _login_gate():
+    st.stop()
+
+with st.sidebar:
+    st.header("⚙️ Account")
+    if st.button("🚪 Logout"):
+        st.session_state.authenticated = False
+        st.rerun()
 
 if 'business_df' not in st.session_state:
     conn = sqlite3.connect('enterprise.db')
