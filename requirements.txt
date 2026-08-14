@@ -6,3 +6,4 @@ supabase
 gspread
 oauth2client
 requests
+python-docx
