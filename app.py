@@ -6,6 +6,12 @@ from fpdf import FPDF
 import os
 import hashlib
 import plotly.express as px
+from docx import Document
+from docx.shared import Pt, Mm, RGBColor
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 
 # =========================================================================
 # DISPLAY / EXPORT COLUMN CONFIG
@@ -319,6 +325,175 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
 
 
 # =========================================================================
+# WORD (.docx) GENERATOR -- mirrors generate_pdf() so Invoice / Quotation /
+# Delivery Challan can be downloaded as an editable Word document too.
+# =========================================================================
+
+_NAVY = RGBColor(0, 51, 102)
+_BLUE = RGBColor(0, 153, 224)
+_BLACK = RGBColor(0, 0, 0)
+_GREY = RGBColor(240, 240, 240)
+
+
+def _docx_shade_cell(cell, rgb_hex):
+    tc_pr = cell._tc.get_or_add_tcPr()
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:val'), 'clear')
+    shd.set(qn('w:color'), 'auto')
+    shd.set(qn('w:fill'), rgb_hex)
+    tc_pr.append(shd)
+
+
+def _docx_set_cell_text(cell, text, bold=False, size=9, align=WD_ALIGN_PARAGRAPH.CENTER, color=None):
+    cell.text = ""
+    p = cell.paragraphs[0]
+    p.alignment = align
+    run = p.add_run(str(text))
+    run.font.bold = bold
+    run.font.size = Pt(size)
+    if color is not None:
+        run.font.color.rgb = color
+
+
+def _docx_add_banner(doc):
+    table = doc.add_table(rows=1, cols=1)
+    table.autofit = True
+    cell = table.cell(0, 0)
+    _docx_shade_cell(cell, "003366")
+    p = cell.paragraphs[0]
+    run = p.add_run("Badar Diagnostics & Medical Equipments")
+    run.font.bold = True
+    run.font.size = Pt(18)
+    run.font.color.rgb = RGBColor(255, 255, 255)
+
+
+def generate_docx(deal, items_df, doc_type="Invoice", terms_text=None):
+    is_challan = (doc_type == "Delivery Challan")
+
+    doc = Document()
+    section = doc.sections[0]
+    section.page_width = Mm(210)
+    section.page_height = Mm(297)
+    section.left_margin = Mm(15)
+    section.right_margin = Mm(15)
+    section.top_margin = Mm(15)
+    section.bottom_margin = Mm(15)
+
+    _docx_add_banner(doc)
+    doc.add_paragraph()
+
+    # No. / Date row
+    meta_table = doc.add_table(rows=1, cols=2)
+    meta_table.autofit = True
+    left_p = meta_table.cell(0, 0).paragraphs[0]
+    r = left_p.add_run("No.  "); r.font.bold = True; r.font.color.rgb = _BLUE
+    r2 = left_p.add_run(f"{deal['invoice_no']}"); r2.font.bold = False
+
+    right_p = meta_table.cell(0, 1).paragraphs[0]
+    right_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    r3 = right_p.add_run("Date  "); r3.font.bold = True; r3.font.color.rgb = _BLUE
+    r4 = right_p.add_run(_format_date_ddmmyyyy(deal['date']))
+
+    doc.add_paragraph()
+
+    # Client
+    client_p = doc.add_paragraph()
+    r5 = client_p.add_run("To: "); r5.font.bold = True
+    r6 = client_p.add_run(f"{deal['client']}"); r6.font.bold = True
+
+    # Title
+    title_p = doc.add_paragraph()
+    title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title_run = title_p.add_run(doc_type.upper())
+    title_run.font.bold = True
+    title_run.font.size = Pt(16)
+
+    doc.add_paragraph()
+
+    # Items table
+    headers = ["SR #", "PRODUCT", "SPECS", "QTY", "PRICE PER UNIT IN PKR", "TOTAL PRICE IN PKR"]
+    item_table = doc.add_table(rows=1, cols=len(headers))
+    item_table.style = "Table Grid"
+    item_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for i, h in enumerate(headers):
+        cell = item_table.cell(0, i)
+        _docx_shade_cell(cell, "F0F0F0")
+        _docx_set_cell_text(cell, h, bold=True, size=8)
+
+    for i, item in enumerate(items_df.itertuples(), start=1):
+        row_cells = item_table.add_row().cells
+        price_txt = "" if is_challan else f"{item.unit_price:,.0f}"
+        total_txt = "" if is_challan else f"{item.line_total:,.0f}"
+        values = [str(i), str(item.equipment), str(item.specs), f"{item.quantity:g}", price_txt, total_txt]
+        aligns = [WD_ALIGN_PARAGRAPH.CENTER, WD_ALIGN_PARAGRAPH.LEFT, WD_ALIGN_PARAGRAPH.LEFT,
+                  WD_ALIGN_PARAGRAPH.CENTER, WD_ALIGN_PARAGRAPH.CENTER, WD_ALIGN_PARAGRAPH.CENTER]
+        for cell, val, al in zip(row_cells, values, aligns):
+            _docx_set_cell_text(cell, val, size=9, align=al)
+
+    doc.add_paragraph()
+
+    if not is_challan:
+        total_table = doc.add_table(rows=1, cols=2)
+        total_table.alignment = WD_TABLE_ALIGNMENT.RIGHT
+        _docx_set_cell_text(total_table.cell(0, 0), "Grand Total", bold=True, size=10)
+        _docx_set_cell_text(total_table.cell(0, 1), f"{deal['close_deal']:,.0f}", bold=True, size=10)
+
+        words_p = doc.add_paragraph()
+        words_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        words_run = words_p.add_run(f"{_number_to_words(deal['close_deal'])} RUPEES ONLY")
+        words_run.font.bold = True
+        words_run.font.size = Pt(8)
+
+    if doc_type == "Quotation" and terms_text and terms_text.strip():
+        doc.add_paragraph()
+        terms_head = doc.add_paragraph()
+        r7 = terms_head.add_run("Terms & Conditions:")
+        r7.font.bold = True
+        r7.font.size = Pt(11)
+        for line in terms_text.split("\n"):
+            if line.strip():
+                terms_p = doc.add_paragraph()
+                terms_p.add_run(line).font.size = Pt(10)
+
+    doc.add_paragraph()
+    doc.add_paragraph("_" * 90)
+
+    regards_p = doc.add_paragraph()
+    r8 = regards_p.add_run("Regards,")
+    r8.font.italic = True
+    r8.font.size = Pt(9)
+
+    company_p = doc.add_paragraph()
+    r9 = company_p.add_run("Badar Diagnostics & Medical Equipment, Lahore")
+    r9.font.bold = True
+    r9.font.size = Pt(9)
+
+    acct_head_p = doc.add_paragraph()
+    r10 = acct_head_p.add_run("Account Details:")
+    r10.font.bold = True
+    r10.font.size = Pt(9)
+    r10.font.color.rgb = _NAVY
+
+    acct_p = doc.add_paragraph()
+    acct_run = acct_p.add_run("Badar Diagnostics & Medical Equipment\nFaysal Bank\n0155007000005585")
+    acct_run.font.size = Pt(8)
+
+    doc.add_paragraph()
+    footer_p = doc.add_paragraph()
+    footer_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    footer_run = footer_p.add_run(
+        "Lahore Office: D Block Nawab Town, Lahore   |   Okara Office: Adjacent Ibn-e-Sina Lab, Opposite DHQ, Okara\n"
+        "Pindi Office: Commercial Market, Rawalpindi   |   Bahawalpur Office: Model Town C, Bahawalpur\n"
+        "0300-7303020, 0334-7303020      E-mail: munir.badar1@gmail.com"
+    )
+    footer_run.font.size = Pt(7)
+
+    file_path = f"{doc_type.replace(' ', '_')}_{deal['invoice_no']}.docx"
+    doc.save(file_path)
+    return file_path
+
+
+# =========================================================================
 # GENERIC SHEET EXPORT (Records / Credit Sheet / Debit Sheet / Expense Sheet)
 # =========================================================================
 
@@ -478,7 +653,7 @@ class TursoHTTPConnection:
         data = resp.json()
         results = data.get("results", [])
         if not results:
-            raise RuntimeError("Turso: khaali response mila.")
+            raise RuntimeError("Turso: empty response received.")
         first = results[0]
         if first.get("type") == "error":
             err = first.get("error", {})
@@ -591,15 +766,94 @@ def init_db():
 init_db()
 st.set_page_config(page_title="Hameez Enterprise Hub", layout="wide")
 
+# =========================================================================
+# MOBILE-FRIENDLY STYLING -- shrinks paddings, fonts, buttons, tabs and
+# tables on small screens so the app is usable on a phone without the
+# desktop layout looking oversized.
+# =========================================================================
+st.markdown("""
+<style>
+/* Tighten the default page padding everywhere */
+.block-container {
+    padding-top: 1.2rem;
+    padding-bottom: 2rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+}
+
+@media (max-width: 768px) {
+    .block-container {
+        padding-top: 0.6rem;
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+        padding-bottom: 1rem;
+    }
+
+    /* Titles / headers */
+    h1 { font-size: 1.35rem !important; }
+    h2 { font-size: 1.15rem !important; }
+    h3 { font-size: 1rem !important; }
+    .stMarkdown p { font-size: 0.85rem !important; }
+
+    /* Tabs -- smaller, scrollable, tighter padding */
+    button[data-baseweb="tab"] {
+        font-size: 0.78rem !important;
+        padding: 0.4rem 0.5rem !important;
+    }
+    div[data-baseweb="tab-list"] {
+        gap: 2px !important;
+        overflow-x: auto !important;
+        flex-wrap: nowrap !important;
+    }
+
+    /* Buttons */
+    .stButton button, .stDownloadButton button, .stFormSubmitButton button {
+        font-size: 0.8rem !important;
+        padding: 0.35rem 0.6rem !important;
+        white-space: normal !important;
+    }
+
+    /* Text inputs / number inputs / selects */
+    .stTextInput input, .stNumberInput input, .stSelectbox div, .stDateInput input {
+        font-size: 0.82rem !important;
+        padding: 0.3rem 0.5rem !important;
+    }
+    label, .stTextInput label, .stNumberInput label, .stSelectbox label, .stDateInput label {
+        font-size: 0.78rem !important;
+    }
+
+    /* Metrics */
+    div[data-testid="stMetricValue"] { font-size: 1.1rem !important; }
+    div[data-testid="stMetricLabel"] { font-size: 0.72rem !important; }
+
+    /* Dataframes / data editors -- allow horizontal scroll instead of squeezing */
+    div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
+        font-size: 0.75rem !important;
+    }
+
+    /* Captions */
+    .stCaption, [data-testid="stCaptionContainer"] { font-size: 0.72rem !important; }
+
+    /* Containers / cards */
+    div[data-testid="stVerticalBlockBorderWrapper"] {
+        padding: 0.4rem !important;
+    }
+
+    /* Sidebar narrower on mobile */
+    section[data-testid="stSidebar"] { min-width: 220px !important; }
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 # =========================================================================
-# LOGIN GATE — koi bhi username/password ke bagair app mein andar nahi ja
-# sakta. Credentials .streamlit/secrets.toml mein rakhne behtar hain (code
-# se alag), lekin agar secrets.toml nahi mila to neeche diye gaye default
-# username/password use hote hain -- INHEIN ZAROOR BADAL DEIN.
+# LOGIN GATE -- no username/password, no access to the app. Credentials are
+# best kept in .streamlit/secrets.toml (separate from the code), but if
+# secrets.toml is not found, the default username/password below are used
+# -- BE SURE TO CHANGE THESE.
 # =========================================================================
 _DEFAULT_USERNAME = "admin"
-_DEFAULT_PASSWORD = "changeme123"  # <-- pehli dafa login karke turant badal dein
+_DEFAULT_PASSWORD = "changeme123"  # <-- change this immediately after first login
 
 
 def _hash_password(password: str) -> str:
@@ -629,7 +883,7 @@ def _login_gate():
         unsafe_allow_html=True,
     )
     st.markdown("## 🔒 Hameez Enterprise Hub")
-    st.caption("Jaari rakhne ke liye login karein.")
+    st.caption("Please log in to continue.")
     with st.form("login_form"):
         entered_username = st.text_input("Username")
         entered_password = st.text_input("Password", type="password")
@@ -642,7 +896,7 @@ def _login_gate():
             st.session_state.authenticated = True
             st.rerun()
         else:
-            st.error("Username ya password ghalat hai.")
+            st.error("Invalid username or password.")
     return False
 
 
@@ -721,10 +975,10 @@ with tab2:
 
     def _log_deal_cb():
         if not st.session_state.temp_items:
-            st.session_state.deal_message = ("error", "Pehle kam az kam ek product add karein.")
+            st.session_state.deal_message = ("error", "Please add at least one product first.")
             return
         if not st.session_state.deal_client.strip():
-            st.session_state.deal_message = ("error", "Client Name zaroori hai.")
+            st.session_state.deal_message = ("error", "Client Name is required.")
             return
 
         items = st.session_state.temp_items
@@ -775,7 +1029,7 @@ with tab2:
         st.session_state.deal_client = ""
         st.session_state.deal_team_member = ""
         st.session_state.deal_paid = 0.0
-        st.session_state.deal_message = ("success", f"Deal {inv_no} save ho gayi!")
+        st.session_state.deal_message = ("success", f"Deal {inv_no} saved successfully!")
 
     def _save_records_edits(edited):
         conn = get_connection()
@@ -838,7 +1092,7 @@ with tab2:
             st.session_state.editing_deal_id = None
             st.session_state.update_temp_items = []
         st.session_state.confirm_delete_deal_id = None
-        st.session_state.deal_delete_message = ("success", f"Deal #{deal_id} permanently delete ho gayi.")
+        st.session_state.deal_delete_message = ("success", f"Deal #{deal_id} permanently deleted.")
 
     def _request_delete_deal_cb(deal_id):
         st.session_state.confirm_delete_deal_id = int(deal_id)
@@ -942,7 +1196,7 @@ with tab2:
 
         st.button("➕ Add to List", use_container_width=True, on_click=_add_item_cb)
         if st.session_state.get("add_item_warning"):
-            st.warning("Equipment Name likhna zaroori hai.")
+            st.warning("Equipment Name is required.")
 
         if st.session_state.temp_items:
             st.write("**Added Items:**")
@@ -987,7 +1241,7 @@ with tab2:
     )
     if st.button("💾 Save Records Changes", key="save_records_btn"):
         _save_records_edits(edited_records)
-        st.success("Records update ho gaye!")
+        st.success("Records updated successfully!")
 
     if not display_df.empty:
         export_df = display_df.sort_values('id', ascending=False)
@@ -1005,12 +1259,12 @@ with tab2:
                                  mime="application/pdf", key="records_pdf_btn")
 
     # =====================================================================
-    # Manage Deals — Edit / Correct / Add Items / Delete Whole Deal
+    # Manage Deals -- Edit / Correct / Add Items / Delete Whole Deal
     # =====================================================================
     st.divider()
-    st.subheader("🔧 Deals Manage Karein (Items Add/Edit/Delete)")
-    st.caption("➕ Items = naye items add karein. ✏️ Correct = ghalat equipment/specs/qty/price theek karein "
-               "ya koi item delete karein. 🗑️ Delete = puri deal hamesha ke liye delete karein.")
+    st.subheader("🔧 Manage Deals (Add/Edit/Delete Items)")
+    st.caption("➕ Manage = add new items. ✏️ Correct = fix wrong equipment/specs/qty/price "
+               "or delete an item. 🗑️ Delete = permanently delete the entire deal.")
 
     if st.session_state.get("deal_delete_message"):
         level, text = st.session_state.deal_delete_message
@@ -1049,7 +1303,7 @@ with tab2:
             edit_deal_id = st.session_state.editing_deal_id
 
             with st.container(border=True):
-                st.markdown(f"**Deal #{edit_deal_id} manage kar rahe hain:**")
+                st.markdown(f"**Managing Deal #{edit_deal_id}:**")
 
                 conn = get_connection()
                 existing_items_df = read_sql_df(
@@ -1057,19 +1311,19 @@ with tab2:
                     "FROM deal_items WHERE deal_id = ?", conn, params=(int(edit_deal_id),))
                 conn.close()
 
-                st.write("**✏️ Existing items (yahan se ghalti theek karein, ya row delete karein):**")
+                st.write("**✏️ Existing Items (correct mistakes here, or delete a row):**")
                 edited_existing_items = st.data_editor(
                     existing_items_df, use_container_width=True, hide_index=True,
                     num_rows="dynamic", disabled=["id", "line_total"],
                     key=f"existing_items_editor_{edit_deal_id}"
                 )
-                if st.button("💾 Correction Save Karein", key=f"save_existing_items_btn_{edit_deal_id}"):
+                if st.button("💾 Save Correction", key=f"save_existing_items_btn_{edit_deal_id}"):
                     _save_existing_items_cb(edit_deal_id, edited_existing_items)
-                    st.success(f"Deal #{edit_deal_id} ke items update ho gaye!")
+                    st.success(f"Deal #{edit_deal_id} items updated!")
                     st.rerun()
 
                 st.divider()
-                st.write("**➕ Deal mein bilkul naya item add karein:**")
+                st.write("**➕ Add a brand new item to this deal:**")
 
                 uc3, uc4 = st.columns(2)
                 uc3.text_input("Equipment Name", key="update_item_name_input")
@@ -1109,14 +1363,14 @@ with tab2:
 
                 st.button("➕ Add to List", key="update_add_item_btn", on_click=_add_update_item_cb)
                 if st.session_state.get("update_add_item_warning"):
-                    st.warning("Equipment Name likhna zaroori hai.")
+                    st.warning("Equipment Name is required.")
 
                 def _remove_update_item_cb(idx):
                     if 0 <= idx < len(st.session_state.update_temp_items):
                         st.session_state.update_temp_items.pop(idx)
 
                 if st.session_state.update_temp_items:
-                    st.write("**Naye Items (abhi save nahi huay):**")
+                    st.write("**New Items (not yet saved):**")
                     for idx, item in enumerate(st.session_state.update_temp_items):
                         nic1, nic2, nic3, nic4, nic5, nic6, nic7 = st.columns([2, 2, 1, 1, 1, 1, 0.6])
                         nic1.write(item['equipment']); nic2.write(item['specs'])
@@ -1176,17 +1430,17 @@ with tab2:
                         st.session_state.update_temp_items = []
                         st.session_state.editing_deal_id = None
                         st.session_state.update_deal_message = (
-                            "success", f"Deal #{deal_id} update ho gayi — naye items add hogaye! "
-                                       f"Ab is deal ki Invoice/Quotation/Challan updated items ke sath print hogi.")
+                            "success", f"Deal #{deal_id} updated -- new items added! "
+                                       f"The Invoice/Quotation/Challan for this deal will now print with the updated items.")
 
-                    st.button("💾 Deal Update Karein (Naye Items Save Karein)", key="update_deal_btn",
+                    st.button("💾 Update Deal (Save New Items)", key="update_deal_btn",
                              on_click=_update_deal_cb, type="primary")
 
                 def _cancel_edit_deal_cb():
                     st.session_state.editing_deal_id = None
                     st.session_state.update_temp_items = []
 
-                st.button("✖️ Band Karein", key="cancel_edit_deal_btn", on_click=_cancel_edit_deal_cb)
+                st.button("✖️ Close", key="cancel_edit_deal_btn", on_click=_cancel_edit_deal_cb)
 
         if st.session_state.get("update_deal_message"):
             level, text = st.session_state.update_deal_message
@@ -1203,7 +1457,7 @@ with tab2:
         terms_text = None
         if doc_choice == "Quotation":
             terms_text = st.text_area(
-                "Terms & Conditions (Quotation par print hongi — edit kar sakte hain)",
+                "Terms & Conditions (printed on the Quotation -- editable)",
                 "1. 50% advance required, remaining on delivery.\n"
                 "2. Prices are valid for 15 days from the quotation date.\n"
                 "3. Delivery within 7-10 working days after confirmation."
@@ -1214,21 +1468,30 @@ with tab2:
         items_df = read_sql_df("SELECT * FROM deal_items WHERE deal_id = ?", conn, params=(int(selected_id),))
         conn.close()
 
+        dl1, dl2 = st.columns(2)
+
         pdf_path = generate_pdf(deal_row, items_df, doc_type=doc_choice, terms_text=terms_text)
         with open(pdf_path, "rb") as f:
-            st.download_button(f"📥 Download {doc_choice} PDF", f, file_name=pdf_path, mime="application/pdf")
+            dl1.download_button(f"📥 Download {doc_choice} (PDF)", f, file_name=pdf_path,
+                                 mime="application/pdf", use_container_width=True)
+
+        docx_path = generate_docx(deal_row, items_df, doc_type=doc_choice, terms_text=terms_text)
+        with open(docx_path, "rb") as f:
+            dl2.download_button(f"📄 Download {doc_choice} (Word)", f, file_name=docx_path,
+                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                 use_container_width=True)
     else:
-        st.info("Abhi koi record nahi hai.")
+        st.info("No records yet.")
 
 # ---------------- TAB 3: CREDIT / DEBIT / EXPENSE SHEETS ----------------
 with tab3:
     st.title("💳 Credit / Debit / Expense Sheets")
     st.caption(
-        "Deals ke records se yeh sheets khud-ba-khud update hoti hain. Agar client ne poora ya "
-        "kam payment kiya ho to woh deal Credit Sheet mein jaati hai (client ne humein dena hai). "
-        "Agar client ne zyada payment kar di ho (overpaid) to woh Debit Sheet mein jaati hai "
-        "(humein client ko wapas dena hai). Neeche se manual entries (jinke paise dene/lene hain, "
-        "deals se bahar) bhi add kar sakte hain."
+        "These sheets update automatically from deal records. If a client has paid in full or "
+        "partially, that deal appears in the Credit Sheet (the client still owes us). "
+        "If a client has overpaid, that deal appears in the Debit Sheet "
+        "(we owe the client a refund). You can also add manual entries below "
+        "(amounts owed outside of deals)."
     )
 
     def _add_credit_cb():
@@ -1346,8 +1609,8 @@ with tab3:
 
     deals = st.session_state.business_df
     credit_tab, debit_tab, expense_tab = st.tabs([
-        "💰 Credit Sheet (Client hume dega)",
-        "💸 Debit Sheet (Hum client ko dengay)",
+        "💰 Credit Sheet (Client owes us)",
+        "💸 Debit Sheet (We owe client)",
         "🧾 Daily Expense Sheet"
     ])
 
@@ -1359,7 +1622,7 @@ with tab3:
         cf1, cf2 = st.columns(2)
         credit_from = cf1.date_input("From", value=_credit_default_from, key="credit_filter_from")
         credit_to = cf2.date_input("To", value=_credit_default_to, key="credit_filter_to")
-        st.caption("Filter sirf deals wali entries par lagta hai — manual entries mein date nahi hoti, woh hamesha nazar aayengi.")
+        st.caption("The filter only applies to deal entries -- manual entries have no date and will always be shown.")
 
         auto_credit = deals[deals['remaining'] >= 0].copy() if not deals.empty else deals
         auto_credit = _apply_date_filter(auto_credit, 'date', credit_from, credit_to)
@@ -1401,14 +1664,14 @@ with tab3:
                                       mime="application/pdf", key="credit_pdf_btn")
 
         st.divider()
-        st.subheader("➕ Add Manual Entry (deals se bahar, jinse paise lene hain)")
+        st.subheader("➕ Add Manual Entry (outside deals, amounts receivable)")
         cc1, cc2, cc3 = st.columns(3)
         cc1.text_input("Client Name", key="credit_new_client")
         cc2.number_input("Total Payment", min_value=0.0, format="%g", key="credit_new_total")
         cc3.number_input("Paid by Client", min_value=0.0, format="%g", key="credit_new_paid")
         st.button("➕ Add to Credit Sheet", on_click=_add_credit_cb, key="add_credit_btn")
         if st.session_state.get("credit_add_warning"):
-            st.warning("Client Name likhna zaroori hai.")
+            st.warning("Client Name is required.")
 
         if not st.session_state.credit_manual_df.empty:
             st.write("**Manual Entries (editable)**")
@@ -1417,7 +1680,7 @@ with tab3:
                 use_container_width=True, hide_index=True, num_rows="dynamic", key="credit_editor_data")
             if st.button("💾 Save Credit Changes", key="save_credit_btn"):
                 _save_credit_edits(edited_credit)
-                st.success("Credit Sheet update ho gayi!")
+                st.success("Credit Sheet updated!")
 
     # ---------------- DEBIT SHEET ----------------
     with debit_tab:
@@ -1427,7 +1690,7 @@ with tab3:
         df1, df2 = st.columns(2)
         debit_from = df1.date_input("From", value=_debit_default_from, key="debit_filter_from")
         debit_to = df2.date_input("To", value=_debit_default_to, key="debit_filter_to")
-        st.caption("Filter sirf deals wali entries par lagta hai — manual entries mein date nahi hoti, woh hamesha nazar aayengi.")
+        st.caption("The filter only applies to deal entries -- manual entries have no date and will always be shown.")
 
         auto_debit = deals[deals['remaining'] < 0].copy() if not deals.empty else deals
         auto_debit = _apply_date_filter(auto_debit, 'date', debit_from, debit_to)
@@ -1469,14 +1732,14 @@ with tab3:
                                       mime="application/pdf", key="debit_pdf_btn")
 
         st.divider()
-        st.subheader("➕ Add Manual Entry (deals se bahar, jinko paise dene hain)")
+        st.subheader("➕ Add Manual Entry (outside deals, amounts payable)")
         dc1, dc2, dc3 = st.columns(3)
         dc1.text_input("Client Name", key="debit_new_client")
         dc2.number_input("Total Payment", min_value=0.0, format="%g", key="debit_new_total")
         dc3.number_input("Paid to Client", min_value=0.0, format="%g", key="debit_new_paid")
         st.button("➕ Add to Debit Sheet", on_click=_add_debit_cb, key="add_debit_btn")
         if st.session_state.get("debit_add_warning"):
-            st.warning("Client Name likhna zaroori hai.")
+            st.warning("Client Name is required.")
 
         if not st.session_state.debit_manual_df.empty:
             st.write("**Manual Entries (editable)**")
@@ -1485,13 +1748,13 @@ with tab3:
                 use_container_width=True, hide_index=True, num_rows="dynamic", key="debit_editor_data")
             if st.button("💾 Save Debit Changes", key="save_debit_btn"):
                 _save_debit_edits(edited_debit)
-                st.success("Debit Sheet update ho gayi!")
+                st.success("Debit Sheet updated!")
 
     # ---------------- DAILY EXPENSE SHEET ----------------
     with expense_tab:
         st.subheader("🧾 Daily Expense Sheet")
-        st.caption("Eating / Fuel select karne par description khud-ba-khud bhar jaati hai. "
-                    "Others select karne par description khud likhni hogi.")
+        st.caption("Selecting Eating/Fuel auto-fills the description. "
+                    "Selecting Others requires you to type your own description.")
 
         ec1, ec2, ec3, ec4 = st.columns([1.2, 1.6, 1, 1])
         category = ec1.selectbox("Category", ["Eating", "Fuel", "Others"], key="expense_category_input")
@@ -1504,7 +1767,7 @@ with tab3:
 
         st.button("➕ Add Expense", on_click=_add_expense_cb, key="add_expense_btn")
         if st.session_state.get("expense_add_warning"):
-            st.warning("Description likhna zaroori hai.")
+            st.warning("Description is required.")
 
         st.divider()
         st.subheader("📋 Full Expense Sheet")
@@ -1549,7 +1812,7 @@ with tab3:
                 })
             if st.button("💾 Save Expense Changes", key="save_expense_btn"):
                 _save_expense_edits(edited_expense)
-                st.success("Expense Sheet update ho gayi!")
+                st.success("Expense Sheet updated!")
 
 # ---------------- TAB 4: PERFORMANCE INSIGHTS ----------------
 with tab4:
