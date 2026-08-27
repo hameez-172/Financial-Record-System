@@ -904,7 +904,7 @@ def init_db():
 
 
 init_db()
-st.set_page_config(page_title="Hameez Enterprise Hub", layout="wide")
+st.set_page_config(page_title="Badar Diagnostics & Medical Equipments", layout="wide")
 
 # =========================================================================
 # MOBILE-FRIENDLY STYLING -- shrinks paddings, fonts, buttons, tabs and
@@ -1038,7 +1038,7 @@ def _login_gate():
         "<div style='max-width:420px;margin:80px auto 0 auto;'>",
         unsafe_allow_html=True,
     )
-    st.markdown("## 🔒 Hameez Enterprise Hub")
+    st.markdown("## 🔒 Badar Diagnostics & Medical Equipments")
     st.caption("Please log in to continue.")
     with st.form("login_form"):
         entered_username = st.text_input("Username")
