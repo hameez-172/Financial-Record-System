@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
+import re
 from datetime import datetime, date
 from fpdf import FPDF
 import os
@@ -15,9 +16,9 @@ from docx.oxml import OxmlElement
 
 # =========================================================================
 # DISPLAY / EXPORT COLUMN CONFIG
-# (kept in one place so Records / Credit / Debit / Expense sheets all use
-#  the same column order + headers everywhere: on-screen table, editor,
-#  CSV export and PDF export)
+# (kept in one place so Records / Credit / Debit / Expense / Liabilities
+#  sheets all use the same column order + headers everywhere: on-screen
+#  table, editor, CSV export and PDF export)
 # =========================================================================
 
 RECORD_DISPLAY_COLUMNS = ['id', 'date', 'client', 'equipment', 'specs', 'qty_per_item',
@@ -38,6 +39,15 @@ DEBIT_COL_WIDTHS = [60, 35, 60, 60, 62]  # sums to 277mm
 
 EXPENSE_HEADERS = ["Description", "Amount"]
 EXPENSE_COL_WIDTHS = [130, 60]  # sums to 190mm (A4 portrait usable width)
+
+LIABILITY_HEADERS = ["Date", "Description", "Total Amount", "Paid Amount", "Remaining"]
+LIABILITY_COL_WIDTHS = [25, 75, 30, 30, 30]  # sums to 190mm (A4 portrait usable width)
+
+# Doc-number prefix per document type (Point 1: Quotation should print
+# "QUO-..." instead of "INV-...", Delivery Challan prints "DC-...";
+# the underlying invoice_no stored in the DB never changes, only what
+# gets printed on the document).
+DOC_NUMBER_PREFIX = {"Invoice": "INV", "Quotation": "QUO", "Delivery Challan": "DC"}
 
 
 # =========================================================================
@@ -82,6 +92,32 @@ def _parse_csv_floats(s):
         except ValueError:
             continue
     return out
+
+
+def _sanitize_filename(text):
+    """Point 4: strips characters that aren't safe in a filename so the
+    downloaded file can be named after the client, e.g. 'ALKHAIR HOSPITAL'."""
+    text = str(text) if text is not None else ""
+    text = re.sub(r'[\\/*?:"<>|]', '', text).strip()
+    return text if text else "Client"
+
+
+def _doc_type_word(doc_type):
+    """Point 4: uppercase word used in the downloaded file name --
+    INVOICE / QUOTATION / DELIVERY CHALLAN."""
+    return str(doc_type).upper()
+
+
+def _display_doc_number(invoice_no, doc_type):
+    """Point 1: swaps the INV- prefix stored in the DB for the prefix that
+    matches what's being printed (QUO- for Quotation, DC- for Delivery
+    Challan), without touching the invoice_no actually saved in the DB."""
+    prefix = DOC_NUMBER_PREFIX.get(doc_type, "INV")
+    invoice_no = str(invoice_no) if invoice_no else ""
+    if "-" in invoice_no:
+        _, rest = invoice_no.split("-", 1)
+        return f"{prefix}-{rest}"
+    return f"{prefix}-{invoice_no}" if invoice_no else prefix
 
 
 _ONES = ["", "ONE", "TWO", "THREE", "FOUR", "FIVE", "SIX", "SEVEN", "EIGHT", "NINE",
@@ -216,7 +252,7 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
     pdf.set_xy(15, 45)
     pdf.set_font("Arial", "B", 12); pdf.set_text_color(*blue_color)
     pdf.cell(10, 5, "No."); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", "", 12)
-    inv_text = f"{deal['invoice_no']}"
+    inv_text = _display_doc_number(deal['invoice_no'], doc_type)
     pdf.set_xy(25, 45); pdf.cell(pdf.get_string_width(inv_text), 5, inv_text)
     pdf.line(25, 50, 25 + pdf.get_string_width(inv_text), 50)
 
@@ -319,7 +355,9 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
     if os.path.exists("stamp.jpg"):
         pdf.image("stamp.jpg", x=140, y=content_y, w=35)
 
-    file_path = f"{doc_type.replace(' ', '_')}_{deal['invoice_no']}.pdf"
+    # Point 4: file is named after the client + doc type, e.g.
+    # "ALKHAIR HOSPITAL INVOICE.pdf" / "ALKHAIR HOSPITAL QUOTATION.pdf"
+    file_path = f"{_sanitize_filename(deal['client'])} {_doc_type_word(doc_type)}.pdf"
     pdf.output(file_path)
     return file_path
 
@@ -327,6 +365,8 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
 # =========================================================================
 # WORD (.docx) GENERATOR -- mirrors generate_pdf() so Invoice / Quotation /
 # Delivery Challan can be downloaded as an editable Word document too.
+# Point 2: header banner + logo, blue-bordered item table, grand total box,
+# footer bands and stamp image are all rebuilt here to match the PDF look.
 # =========================================================================
 
 _NAVY = RGBColor(0, 51, 102)
@@ -344,6 +384,34 @@ def _docx_shade_cell(cell, rgb_hex):
     tc_pr.append(shd)
 
 
+def _docx_set_cell_border(cell, color_hex="0099E0", sz=4):
+    """Gives a cell a colored border on all four sides (used to mirror the
+    PDF's blue table borders, which python-docx's default 'Table Grid'
+    style doesn't give us)."""
+    tc_pr = cell._tc.get_or_add_tcPr()
+    tc_borders = OxmlElement('w:tcBorders')
+    for edge in ('top', 'left', 'bottom', 'right'):
+        el = OxmlElement(f'w:{edge}')
+        el.set(qn('w:val'), 'single')
+        el.set(qn('w:sz'), str(sz))
+        el.set(qn('w:space'), '0')
+        el.set(qn('w:color'), color_hex)
+        tc_borders.append(el)
+    tc_pr.append(tc_borders)
+
+
+def _docx_set_col_widths(table, widths_mm):
+    """python-docx needs width set on both the column AND every cell for a
+    fixed layout to actually stick."""
+    table.autofit = False
+    for row in table.rows:
+        for cell, w in zip(row.cells, widths_mm):
+            cell.width = Mm(w)
+    for i, w in enumerate(widths_mm):
+        if i < len(table.columns):
+            table.columns[i].width = Mm(w)
+
+
 def _docx_set_cell_text(cell, text, bold=False, size=9, align=WD_ALIGN_PARAGRAPH.CENTER, color=None):
     cell.text = ""
     p = cell.paragraphs[0]
@@ -355,16 +423,99 @@ def _docx_set_cell_text(cell, text, bold=False, size=9, align=WD_ALIGN_PARAGRAPH
         run.font.color.rgb = color
 
 
-def _docx_add_banner(doc):
-    table = doc.add_table(rows=1, cols=1)
-    table.autofit = True
-    cell = table.cell(0, 0)
-    _docx_shade_cell(cell, "003366")
-    p = cell.paragraphs[0]
+def _docx_header_banner(doc):
+    """Mirrors InvoicePDF.header(): a thin navy+blue strip, then the logo
+    next to the company name in navy text -- same as the PDF."""
+    strip = doc.add_table(rows=1, cols=2)
+    _docx_set_col_widths(strip, [22, 158])
+    _docx_shade_cell(strip.cell(0, 0), "003366")
+    _docx_shade_cell(strip.cell(0, 1), "0099E0")
+    for cell in strip.rows[0].cells:
+        p = cell.paragraphs[0]
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after = Pt(0)
+        run = p.add_run(" ")
+        run.font.size = Pt(2)
+
+    header_table = doc.add_table(rows=1, cols=2)
+    _docx_set_col_widths(header_table, [30, 150])
+    logo_cell = header_table.cell(0, 0)
+    logo_cell.text = ""
+    if os.path.exists("lo.png"):
+        run = logo_cell.paragraphs[0].add_run()
+        try:
+            run.add_picture("lo.png", width=Mm(22))
+        except Exception:
+            pass
+    name_cell = header_table.cell(0, 1)
+    name_cell.text = ""
+    p = name_cell.paragraphs[0]
     run = p.add_run("Badar Diagnostics & Medical Equipments")
     run.font.bold = True
     run.font.size = Pt(18)
-    run.font.color.rgb = RGBColor(255, 255, 255)
+    run.font.color.rgb = RGBColor(20, 40, 80)
+
+
+def _docx_footer_bands(doc):
+    """Mirrors InvoicePDF.footer(): navy band with the office addresses,
+    then a blue band with the phone/email, both in white text."""
+    footer_table = doc.add_table(rows=2, cols=1)
+    footer_table.autofit = True
+
+    navy_cell = footer_table.cell(0, 0)
+    _docx_shade_cell(navy_cell, "003366")
+    navy_cell.text = ""
+    p1 = navy_cell.paragraphs[0]
+    p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r1 = p1.add_run("Lahore Office: D Block Nawab Town, Lahore   |   Okara Office: Adjacent Ibn-e-Sina Lab, Opposite DHQ, Okara")
+    r1.font.size = Pt(7); r1.font.color.rgb = RGBColor(255, 255, 255)
+    p2 = navy_cell.add_paragraph()
+    p2.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r2 = p2.add_run("Pindi Office: Commercial Market, Rawalpindi   |   Bahawalpur Office: Model Town C, Bahawalpur")
+    r2.font.size = Pt(7); r2.font.color.rgb = RGBColor(255, 255, 255)
+
+    blue_cell = footer_table.cell(1, 0)
+    _docx_shade_cell(blue_cell, "0099E0")
+    blue_cell.text = ""
+    p3 = blue_cell.paragraphs[0]
+    p3.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    r3 = p3.add_run("0300-7303020, 0334-7303020      E-mail: munir.badar1@gmail.com")
+    r3.font.bold = True; r3.font.size = Pt(8); r3.font.color.rgb = RGBColor(255, 255, 255)
+
+
+def _docx_signature_block(doc):
+    """Mirrors the PDF's Regards / Account Details block, with the stamp
+    image placed on the right the same way pdf.image() places it in
+    generate_pdf()."""
+    doc.add_paragraph("_" * 90)
+    sig_table = doc.add_table(rows=1, cols=2)
+    _docx_set_col_widths(sig_table, [120, 60])
+
+    left = sig_table.cell(0, 0)
+    left.text = ""
+    p = left.paragraphs[0]
+    r = p.add_run("Regards,")
+    r.font.italic = True; r.font.size = Pt(9)
+    p2 = left.add_paragraph()
+    r2 = p2.add_run("Badar Diagnostics & Medical Equipment, Lahore")
+    r2.font.bold = True; r2.font.size = Pt(9)
+    p3 = left.add_paragraph()
+    r3 = p3.add_run("Account Details:")
+    r3.font.bold = True; r3.font.size = Pt(9); r3.font.color.rgb = _NAVY
+    p4 = left.add_paragraph()
+    r4 = p4.add_run("Badar Diagnostics & Medical Equipment\nFaysal Bank\n0155007000005585")
+    r4.font.size = Pt(8)
+
+    right = sig_table.cell(0, 1)
+    right.text = ""
+    if os.path.exists("stamp.jpg"):
+        rp = right.paragraphs[0]
+        rp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        run = rp.add_run()
+        try:
+            run.add_picture("stamp.jpg", width=Mm(35))
+        except Exception:
+            pass
 
 
 def generate_docx(deal, items_df, doc_type="Invoice", terms_text=None):
@@ -379,7 +530,7 @@ def generate_docx(deal, items_df, doc_type="Invoice", terms_text=None):
     section.top_margin = Mm(15)
     section.bottom_margin = Mm(15)
 
-    _docx_add_banner(doc)
+    _docx_header_banner(doc)
     doc.add_paragraph()
 
     # No. / Date row
@@ -387,7 +538,7 @@ def generate_docx(deal, items_df, doc_type="Invoice", terms_text=None):
     meta_table.autofit = True
     left_p = meta_table.cell(0, 0).paragraphs[0]
     r = left_p.add_run("No.  "); r.font.bold = True; r.font.color.rgb = _BLUE
-    r2 = left_p.add_run(f"{deal['invoice_no']}"); r2.font.bold = False
+    r2 = left_p.add_run(_display_doc_number(deal['invoice_no'], doc_type)); r2.font.bold = False
 
     right_p = meta_table.cell(0, 1).paragraphs[0]
     right_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
@@ -430,11 +581,21 @@ def generate_docx(deal, items_df, doc_type="Invoice", terms_text=None):
         for cell, val, al in zip(row_cells, values, aligns):
             _docx_set_cell_text(cell, val, size=9, align=al)
 
+    # Blue borders on every cell of the item table, to match the PDF's
+    # blue-bordered grid (header row included).
+    for row in item_table.rows:
+        for cell in row.cells:
+            _docx_set_cell_border(cell, "0099E0", sz=4)
+
     doc.add_paragraph()
 
     if not is_challan:
         total_table = doc.add_table(rows=1, cols=2)
         total_table.alignment = WD_TABLE_ALIGNMENT.RIGHT
+        _docx_set_col_widths(total_table, [30, 25])
+        for cell in total_table.rows[0].cells:
+            _docx_shade_cell(cell, "F0F0F0")
+            _docx_set_cell_border(cell, "0099E0", sz=6)
         _docx_set_cell_text(total_table.cell(0, 0), "Grand Total", bold=True, size=10)
         _docx_set_cell_text(total_table.cell(0, 1), f"{deal['close_deal']:,.0f}", bold=True, size=10)
 
@@ -456,45 +617,20 @@ def generate_docx(deal, items_df, doc_type="Invoice", terms_text=None):
                 terms_p.add_run(line).font.size = Pt(10)
 
     doc.add_paragraph()
-    doc.add_paragraph("_" * 90)
-
-    regards_p = doc.add_paragraph()
-    r8 = regards_p.add_run("Regards,")
-    r8.font.italic = True
-    r8.font.size = Pt(9)
-
-    company_p = doc.add_paragraph()
-    r9 = company_p.add_run("Badar Diagnostics & Medical Equipment, Lahore")
-    r9.font.bold = True
-    r9.font.size = Pt(9)
-
-    acct_head_p = doc.add_paragraph()
-    r10 = acct_head_p.add_run("Account Details:")
-    r10.font.bold = True
-    r10.font.size = Pt(9)
-    r10.font.color.rgb = _NAVY
-
-    acct_p = doc.add_paragraph()
-    acct_run = acct_p.add_run("Badar Diagnostics & Medical Equipment\nFaysal Bank\n0155007000005585")
-    acct_run.font.size = Pt(8)
-
+    _docx_signature_block(doc)
     doc.add_paragraph()
-    footer_p = doc.add_paragraph()
-    footer_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    footer_run = footer_p.add_run(
-        "Lahore Office: D Block Nawab Town, Lahore   |   Okara Office: Adjacent Ibn-e-Sina Lab, Opposite DHQ, Okara\n"
-        "Pindi Office: Commercial Market, Rawalpindi   |   Bahawalpur Office: Model Town C, Bahawalpur\n"
-        "0300-7303020, 0334-7303020      E-mail: munir.badar1@gmail.com"
-    )
-    footer_run.font.size = Pt(7)
+    _docx_footer_bands(doc)
 
-    file_path = f"{doc_type.replace(' ', '_')}_{deal['invoice_no']}.docx"
+    # Point 4: file is named after the client + doc type, e.g.
+    # "ALKHAIR HOSPITAL INVOICE.docx" / "ALKHAIR HOSPITAL QUOTATION.docx"
+    file_path = f"{_sanitize_filename(deal['client'])} {_doc_type_word(doc_type)}.docx"
     doc.save(file_path)
     return file_path
 
 
 # =========================================================================
-# GENERIC SHEET EXPORT (Records / Credit Sheet / Debit Sheet / Expense Sheet)
+# GENERIC SHEET EXPORT (Records / Credit Sheet / Debit Sheet / Expense Sheet
+# / Liabilities Sheet)
 # =========================================================================
 
 def _draw_sheet_table_header(pdf, headers, col_widths, y, start_x=10):
@@ -740,6 +876,10 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS daily_expenses
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, category TEXT,
                   description TEXT, amount REAL)''')
+    # Point 3: new table backing the Liabilities tab.
+    c.execute('''CREATE TABLE IF NOT EXISTS liabilities
+                  (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, description TEXT,
+                  total_amount REAL, paid_amount REAL, remaining REAL)''')
 
     existing_cols = [row[1] for row in c.execute("PRAGMA table_info(business_deals)").fetchall()]
     if 'equipment' not in existing_cols:
@@ -936,7 +1076,17 @@ if 'expense_df' not in st.session_state:
     st.session_state.expense_df = read_sql_df("SELECT * FROM daily_expenses", conn)
     conn.close()
 
-tab1, tab2, tab3, tab4 = st.tabs(["🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit/Expense Sheets", "📊 Analytics"])
+if 'liability_df' not in st.session_state:
+    conn = get_connection()
+    st.session_state.liability_df = read_sql_df("SELECT * FROM liabilities", conn)
+    conn.close()
+
+# Point 3: current tabs are Home Finance, Business Deals, Credit/Debit/Expense
+# Sheets, Analytics -- plus the new Liabilities tab.
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit/Expense Sheets",
+    "📊 Analytics", "📉 Liabilities"
+])
 
 # ---------------- TAB 2: BUSINESS DEALS ----------------
 with tab2:
@@ -1847,3 +1997,100 @@ with tab4:
         st.metric("Total Revenue", f"Rs {int(st.session_state.business_df['close_deal'].sum()):,}")
         fig = px.bar(st.session_state.business_df, x='id', y='close_deal', template="plotly_dark")
         st.plotly_chart(fig, use_container_width=True)
+
+# ---------------- TAB 5: LIABILITIES ----------------
+with tab5:
+    st.title("📉 Liabilities")
+    st.caption("Track amounts your business owes -- loans, supplier dues, pending payables, etc.")
+
+    def _add_liability_cb():
+        desc = st.session_state.liability_desc_input
+        if desc and desc.strip():
+            total = st.session_state.liability_total_input
+            paid = st.session_state.liability_paid_input
+            remaining = total - paid
+            liab_date = st.session_state.liability_date_input
+            conn = get_connection()
+            conn.execute(
+                "INSERT INTO liabilities (date, description, total_amount, paid_amount, remaining) VALUES (?,?,?,?,?)",
+                (str(liab_date), desc, total, paid, remaining))
+            conn.commit()
+            if hasattr(conn, "sync"):
+                conn.sync()
+            st.session_state.liability_df = read_sql_df("SELECT * FROM liabilities", conn)
+            conn.close()
+            st.session_state.liability_desc_input = ""
+            st.session_state.liability_total_input = 0.0
+            st.session_state.liability_paid_input = 0.0
+            st.session_state.liability_add_warning = False
+        else:
+            st.session_state.liability_add_warning = True
+
+    def _save_liability_edits(edited):
+        conn = get_connection()
+        conn.execute("DELETE FROM liabilities")
+        for row in edited.to_dict("records"):
+            if str(row.get('description', '')).strip():
+                total = row.get('total_amount', 0) or 0
+                paid = row.get('paid_amount', 0) or 0
+                conn.execute(
+                    "INSERT INTO liabilities (date, description, total_amount, paid_amount, remaining) VALUES (?,?,?,?,?)",
+                    (row.get('date'), row.get('description'), total, paid, total - paid))
+        conn.commit()
+        if hasattr(conn, "sync"):
+            conn.sync()
+        st.session_state.liability_df = read_sql_df("SELECT * FROM liabilities", conn)
+        conn.close()
+
+    lc1, lc2, lc3, lc4 = st.columns([1, 2, 1, 1])
+    lc1.date_input("Date", value=date.today(), key="liability_date_input")
+    lc2.text_input("Description (e.g. Bank Loan, Supplier Due)", key="liability_desc_input")
+    lc3.number_input("Total Amount", min_value=0.0, format="%g", key="liability_total_input")
+    lc4.number_input("Paid Amount", min_value=0.0, format="%g", key="liability_paid_input")
+    st.button("➕ Add Liability", on_click=_add_liability_cb, key="add_liability_btn")
+    if st.session_state.get("liability_add_warning"):
+        st.warning("Description is required.")
+
+    st.divider()
+    st.subheader("📋 Full Liabilities Sheet")
+
+    liab_df = st.session_state.liability_df
+    _liab_dates = pd.to_datetime(liab_df['date'], errors='coerce') \
+        if not liab_df.empty else pd.Series([], dtype='datetime64[ns]')
+    _liab_default_from = _liab_dates.min().date() if not _liab_dates.empty and _liab_dates.notna().any() else date.today()
+    _liab_default_to = _liab_dates.max().date() if not _liab_dates.empty and _liab_dates.notna().any() else date.today()
+    lf1, lf2 = st.columns(2)
+    liability_from = lf1.date_input("From", value=_liab_default_from, key="liability_filter_from")
+    liability_to = lf2.date_input("To", value=_liab_default_to, key="liability_filter_to")
+
+    filtered_liab_df = _apply_date_filter(
+        liab_df.drop(columns=['id'], errors='ignore'), 'date', liability_from, liability_to)
+    st.dataframe(filtered_liab_df, use_container_width=True, hide_index=True)
+
+    _liab_total_remaining = filtered_liab_df['remaining'].sum() if not filtered_liab_df.empty else 0
+    st.metric("📉 Total Outstanding Liabilities (selected range)", f"Rs {_liab_total_remaining:,.0f}")
+
+    if not filtered_liab_df.empty:
+        liab_export = _prepare_export_df(filtered_liab_df, date_cols=['date'],
+                                          money_cols=['total_amount', 'paid_amount', 'remaining'])
+        liab_export_named = liab_export.rename(columns={
+            'date': 'Date', 'description': 'Description', 'total_amount': 'Total Amount',
+            'paid_amount': 'Paid Amount', 'remaining': 'Remaining'})
+        lec1, lec2 = st.columns(2)
+        lec1.download_button("⬇️ Liabilities CSV", data=_df_to_csv_bytes(liab_export_named),
+                              file_name="liabilities.csv", mime="text/csv", key="liability_csv_btn")
+        liab_pdf_df = liab_export_named[LIABILITY_HEADERS]
+        liability_pdf_path = generate_sheet_pdf(liab_pdf_df, LIABILITY_HEADERS, LIABILITY_COL_WIDTHS,
+                                                  "Liabilities Sheet", "liabilities_sheet", orientation="P")
+        with open(liability_pdf_path, "rb") as f:
+            lec2.download_button("⬇️ Liabilities PDF", data=f, file_name="liabilities.pdf",
+                                  mime="application/pdf", key="liability_pdf_btn")
+
+    if not st.session_state.liability_df.empty:
+        st.write("**Manual Entries (editable)**")
+        edited_liability = st.data_editor(
+            st.session_state.liability_df.drop(columns=['id']),
+            use_container_width=True, hide_index=True, num_rows="dynamic", key="liability_editor_data")
+        if st.button("💾 Save Liabilities Changes", key="save_liability_btn"):
+            _save_liability_edits(edited_liability)
+            st.success("Liabilities updated!")
