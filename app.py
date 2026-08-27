@@ -915,15 +915,30 @@ st.markdown("""
 <style>
 /* Tighten the default page padding everywhere */
 .block-container {
-    padding-top: 1.2rem;
+    padding-top: 2.2rem;
     padding-bottom: 2rem;
     padding-left: 1rem;
     padding-right: 1rem;
 }
 
+/* Push the tab bar down a bit and give tab labels more breathing room so
+   they don't get clipped by the top toolbar / page edge. */
+div[data-testid="stTabs"] {
+    margin-top: 0.6rem;
+}
+div[data-baseweb="tab-list"] {
+    margin-top: 6px !important;
+    padding-top: 6px !important;
+    padding-bottom: 2px !important;
+}
+button[data-baseweb="tab"] {
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+}
+
 @media (max-width: 768px) {
     .block-container {
-        padding-top: 0.6rem;
+        padding-top: 1.4rem;
         padding-left: 0.5rem;
         padding-right: 0.5rem;
         padding-bottom: 1rem;
@@ -935,12 +950,13 @@ st.markdown("""
     h3 { font-size: 1rem !important; }
     .stMarkdown p { font-size: 0.85rem !important; }
 
-    /* Tabs -- smaller, scrollable, tighter padding */
+    /* Tabs -- smaller, scrollable, tighter padding, but still clear of the top edge */
     button[data-baseweb="tab"] {
         font-size: 0.78rem !important;
-        padding: 0.4rem 0.5rem !important;
+        padding: 0.55rem 0.5rem !important;
     }
     div[data-baseweb="tab-list"] {
+        margin-top: 8px !important;
         gap: 2px !important;
         overflow-x: auto !important;
         flex-wrap: nowrap !important;
@@ -1385,6 +1401,12 @@ with tab2:
     display_df = display_df[RECORD_DISPLAY_COLUMNS]
     display_df = _apply_date_filter(display_df, 'date', records_from, records_to)
 
+    # Auto status: whenever Remaining is 0 (or less), Status shows as Paid --
+    # this applies even before the row has been edited/saved.
+    if not display_df.empty:
+        display_df['status'] = display_df['remaining'].apply(
+            lambda r: 'Paid' if pd.notna(r) and float(r) <= 0.01 else 'Pending')
+
     edited_records = st.data_editor(
         display_df, use_container_width=True, hide_index=True, num_rows="fixed",
         disabled=["id"], key="records_editor_data"
@@ -1392,6 +1414,27 @@ with tab2:
     if st.button("💾 Save Records Changes", key="save_records_btn"):
         _save_records_edits(edited_records)
         st.success("Records updated successfully!")
+
+    if not edited_records.empty:
+        # Live color-coded preview: Status recalculates from Remaining as you
+        # type, and fully-paid rows (Remaining = 0) are highlighted green.
+        preview_df = edited_records.copy()
+        preview_df['status'] = preview_df['remaining'].apply(
+            lambda r: 'Paid' if pd.notna(r) and float(r) <= 0.01 else 'Pending')
+        preview_view = preview_df[RECORD_DISPLAY_COLUMNS].copy()
+        preview_view = _prepare_export_df(
+            preview_view, date_cols=['date'],
+            money_cols=['close_deal', 'actual_cost', 'paid', 'remaining', 'profit'])
+        preview_view = preview_view.rename(columns=dict(zip(RECORD_DISPLAY_COLUMNS, RECORD_DISPLAY_HEADERS)))
+
+        def _highlight_paid_rows(row):
+            if str(row.get('Status', '')).strip().lower() == 'paid':
+                return ['background-color: #c6f6d5'] * len(row)
+            return [''] * len(row)
+
+        st.caption("🟢 Green rows are fully paid (Remaining = 0) -- Status updates automatically.")
+        st.dataframe(preview_view.style.apply(_highlight_paid_rows, axis=1),
+                     use_container_width=True, hide_index=True)
 
     if not display_df.empty:
         export_df = display_df.sort_values('id', ascending=False)
