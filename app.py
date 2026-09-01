@@ -2270,4 +2270,4 @@ with tab6:
             approved_sheet_view.style.map(_highlight_paid_status_cell, subset=['Status']),
             width='stretch', hide_index=True
 )
-        )
+        
