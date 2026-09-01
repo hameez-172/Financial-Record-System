@@ -16,6 +16,9 @@ from docx.oxml import OxmlElement
 
 # =========================================================================
 # DISPLAY / EXPORT COLUMN CONFIG
+# (kept in one place so Records / Credit / Debit / Expense / Liabilities
+#  sheets all use the same column order + headers everywhere: on-screen
+#  table, editor, CSV export and PDF export)
 # =========================================================================
 
 RECORD_DISPLAY_COLUMNS = ['id', 'date', 'client', 'equipment', 'specs', 'qty_per_item',
@@ -40,7 +43,13 @@ EXPENSE_COL_WIDTHS = [130, 60]  # sums to 190mm (A4 portrait usable width)
 LIABILITY_HEADERS = ["Date", "Description", "Total Amount", "Paid Amount", "Remaining"]
 LIABILITY_COL_WIDTHS = [25, 75, 30, 30, 30]  # sums to 190mm (A4 portrait usable width)
 
+# Doc-number prefix per document type (Point 1: Quotation should print
+# "QUO-..." instead of "INV-...", Delivery Challan prints "DC-...";
+# the underlying invoice_no stored in the DB never changes, only what
+# gets printed on the document).
 DOC_NUMBER_PREFIX = {"Invoice": "INV", "Quotation": "QUO", "Delivery Challan": "DC"}
+
+# Status options for the manual status dropdown on every deal entry.
 STATUS_OPTIONS = ["Decline", "Approved", "Paid", "Pending"]
 
 
@@ -89,16 +98,23 @@ def _parse_csv_floats(s):
 
 
 def _sanitize_filename(text):
+    """Point 4: strips characters that aren't safe in a filename so the
+    downloaded file can be named after the client, e.g. 'ALKHAIR HOSPITAL'."""
     text = str(text) if text is not None else ""
     text = re.sub(r'[\\/*?:"<>|]', '', text).strip()
     return text if text else "Client"
 
 
 def _doc_type_word(doc_type):
+    """Point 4: uppercase word used in the downloaded file name --
+    INVOICE / QUOTATION / DELIVERY CHALLAN."""
     return str(doc_type).upper()
 
 
 def _display_doc_number(invoice_no, doc_type):
+    """Point 1: swaps the INV- prefix stored in the DB for the prefix that
+    matches what's being printed (QUO- for Quotation, DC- for Delivery
+    Challan), without touching the invoice_no actually saved in the DB."""
     prefix = DOC_NUMBER_PREFIX.get(doc_type, "INV")
     invoice_no = str(invoice_no) if invoice_no else ""
     if "-" in invoice_no:
@@ -164,7 +180,7 @@ class InvoicePDF(FPDF):
         self.set_y(self.h - 35); self.set_text_color(255, 255, 255); self.set_font("Arial", "", 7)
         self.multi_cell(0, 3.5, "Lahore Office: D Block Nawab Town, Lahore   |   Okara Office: Adjacent Ibn-e-Sina Lab, Opposite DHQ, Okara\nPindi Office: Commercial Market, Rawalpindi   |   Bahawalpur Office: Model Town C, Bahawalpur", align="C")
         self.set_y(self.h - 21); self.set_font("Arial", "B", 8)
-        self.cell(0, 4, " 0300-7303020, 0334-7303020     E-mail: munir.badar1@gmail.com", align="C")
+        self.cell(0, 4, " 0300-7303020, 0334-7303020      E-mail: munir.badar1@gmail.com", align="C")
 
 
 def _draw_item_table_header(pdf, y):
@@ -177,6 +193,10 @@ def _draw_item_table_header(pdf, y):
 
 
 def _wrapped_line_count(pdf, text, width):
+    """Estimates how many lines a multi_cell(width, ...) call will take for the
+    given text -- used both for sizing the Terms & Conditions block AND (now)
+    for auto-growing table rows so long names/specs never get cut off, they
+    just wrap onto extra lines and the row grows taller automatically."""
     total_lines = 0
     for paragraph in str(text).split("\n"):
         if paragraph.strip() == "":
@@ -196,6 +216,18 @@ def _wrapped_line_count(pdf, text, width):
 
 
 def _draw_wrapped_row(pdf, values, widths, line_h, start_x, align="C", fill=False):
+    """Draws one table row where every cell auto-wraps long text onto multiple
+    lines instead of cutting it off. The border for EVERY cell in the row is
+    drawn at the same full row height (the tallest cell's height) first, then
+    the (possibly multi-line) text is written on top without its own border --
+    this keeps the whole row's grid lines aligned instead of only the
+    long-text column's box stretching while the rest stay short.
+    `align` can be a single alignment for every column, or a list/tuple with
+    one alignment per column (e.g. left-align a name column, center the rest).
+    `fill` draws a background fill behind the row (used for table headers).
+    Text is also centered VERTICALLY within the row's full height, so a
+    single-line cell (e.g. a header like "QTY") sits in the middle of its box
+    instead of stuck at the top."""
     aligns = list(align) if isinstance(align, (list, tuple)) else [align] * len(values)
     per_cell_lines = [_wrapped_line_count(pdf, v, w) for v, w in zip(values, widths)]
     row_h = max(per_cell_lines) * line_h
@@ -219,6 +251,7 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
 
     is_challan = (doc_type == "Delivery Challan")
 
+    # 1. Invoice No & Date
     pdf.set_xy(15, 45)
     pdf.set_font("Arial", "B", 12); pdf.set_text_color(*blue_color)
     pdf.cell(10, 5, "No."); pdf.set_text_color(0, 0, 0); pdf.set_font("Arial", "", 12)
@@ -232,6 +265,7 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
     pdf.set_xy(155, 45); pdf.cell(pdf.get_string_width(date_val), 5, date_val)
     pdf.line(155, 50, 155 + pdf.get_string_width(date_val), 50)
 
+    # 2. Client Name
     pdf.set_text_color(0, 0, 0); pdf.set_xy(15, 58); pdf.set_font("Arial", "B", 12)
     pdf.cell(10, 6, "To: ")
     name_x = pdf.get_x()
@@ -241,6 +275,7 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
     pdf.set_draw_color(0, 0, 0)
     pdf.line(name_x, 64, name_x + pdf.get_string_width(client_name), 64)
 
+    # 3. Table
     pdf.set_xy(0, 70); pdf.set_font("Arial", "B", 16); pdf.cell(210, 8, doc_type.upper(), align="C")
 
     _draw_item_table_header(pdf, 85)
@@ -323,13 +358,18 @@ def generate_pdf(deal, items_df, doc_type="Invoice", terms_text=None):
     if os.path.exists("stamp.jpg"):
         pdf.image("stamp.jpg", x=140, y=content_y, w=35)
 
+    # Point 4: file is named after the client + doc type, e.g.
+    # "ALKHAIR HOSPITAL INVOICE.pdf" / "ALKHAIR HOSPITAL QUOTATION.pdf"
     file_path = f"{_sanitize_filename(deal['client'])} {_doc_type_word(doc_type)}.pdf"
     pdf.output(file_path)
     return file_path
 
 
 # =========================================================================
-# WORD (.docx) GENERATOR
+# WORD (.docx) GENERATOR -- mirrors generate_pdf() so Invoice / Quotation /
+# Delivery Challan can be downloaded as an editable Word document too.
+# Point 2: header banner + logo, blue-bordered item table, grand total box,
+# footer bands and stamp image are all rebuilt here to match the PDF look.
 # =========================================================================
 
 _NAVY = RGBColor(0, 51, 102)
@@ -348,6 +388,9 @@ def _docx_shade_cell(cell, rgb_hex):
 
 
 def _docx_set_cell_border(cell, color_hex="0099E0", sz=4):
+    """Gives a cell a colored border on all four sides (used to mirror the
+    PDF's blue table borders, which python-docx's default 'Table Grid'
+    style doesn't give us)."""
     tc_pr = cell._tc.get_or_add_tcPr()
     tc_borders = OxmlElement('w:tcBorders')
     for edge in ('top', 'left', 'bottom', 'right'):
@@ -361,6 +404,8 @@ def _docx_set_cell_border(cell, color_hex="0099E0", sz=4):
 
 
 def _docx_set_col_widths(table, widths_mm):
+    """python-docx needs width set on both the column AND every cell for a
+    fixed layout to actually stick."""
     table.autofit = False
     for row in table.rows:
         for cell, w in zip(row.cells, widths_mm):
@@ -382,6 +427,8 @@ def _docx_set_cell_text(cell, text, bold=False, size=9, align=WD_ALIGN_PARAGRAPH
 
 
 def _docx_header_banner(doc):
+    """Mirrors InvoicePDF.header(): a thin navy+blue strip, then the logo
+    next to the company name in navy text -- same as the PDF."""
     strip = doc.add_table(rows=1, cols=2)
     _docx_set_col_widths(strip, [22, 158])
     _docx_shade_cell(strip.cell(0, 0), "003366")
@@ -413,6 +460,8 @@ def _docx_header_banner(doc):
 
 
 def _docx_footer_bands(doc):
+    """Mirrors InvoicePDF.footer(): navy band with the office addresses,
+    then a blue band with the phone/email, both in white text."""
     footer_table = doc.add_table(rows=2, cols=1)
     footer_table.autofit = True
 
@@ -433,11 +482,14 @@ def _docx_footer_bands(doc):
     blue_cell.text = ""
     p3 = blue_cell.paragraphs[0]
     p3.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r3 = p3.add_run("0300-7303020, 0334-7303020     E-mail: munir.badar1@gmail.com")
+    r3 = p3.add_run("0300-7303020, 0334-7303020      E-mail: munir.badar1@gmail.com")
     r3.font.bold = True; r3.font.size = Pt(8); r3.font.color.rgb = RGBColor(255, 255, 255)
 
 
 def _docx_signature_block(doc):
+    """Mirrors the PDF's Regards / Account Details block, with the stamp
+    image placed on the right the same way pdf.image() places it in
+    generate_pdf()."""
     doc.add_paragraph("_" * 90)
     sig_table = doc.add_table(rows=1, cols=2)
     _docx_set_col_widths(sig_table, [120, 60])
@@ -484,6 +536,7 @@ def generate_docx(deal, items_df, doc_type="Invoice", terms_text=None):
     _docx_header_banner(doc)
     doc.add_paragraph()
 
+    # No. / Date row
     meta_table = doc.add_table(rows=1, cols=2)
     meta_table.autofit = True
     left_p = meta_table.cell(0, 0).paragraphs[0]
@@ -497,10 +550,12 @@ def generate_docx(deal, items_df, doc_type="Invoice", terms_text=None):
 
     doc.add_paragraph()
 
+    # Client
     client_p = doc.add_paragraph()
     r5 = client_p.add_run("To: "); r5.font.bold = True
     r6 = client_p.add_run(f"{deal['client']}"); r6.font.bold = True
 
+    # Title
     title_p = doc.add_paragraph()
     title_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
     title_run = title_p.add_run(doc_type.upper())
@@ -509,6 +564,7 @@ def generate_docx(deal, items_df, doc_type="Invoice", terms_text=None):
 
     doc.add_paragraph()
 
+    # Items table
     headers = ["SR #", "PRODUCT", "SPECS", "QTY", "PRICE PER UNIT IN PKR", "TOTAL PRICE IN PKR"]
     item_table = doc.add_table(rows=1, cols=len(headers))
     item_table.style = "Table Grid"
@@ -528,6 +584,8 @@ def generate_docx(deal, items_df, doc_type="Invoice", terms_text=None):
         for cell, val, al in zip(row_cells, values, aligns):
             _docx_set_cell_text(cell, val, size=9, align=al)
 
+    # Blue borders on every cell of the item table, to match the PDF's
+    # blue-bordered grid (header row included).
     for row in item_table.rows:
         for cell in row.cells:
             _docx_set_cell_border(cell, "0099E0", sz=4)
@@ -566,13 +624,16 @@ def generate_docx(deal, items_df, doc_type="Invoice", terms_text=None):
     doc.add_paragraph()
     _docx_footer_bands(doc)
 
+    # Point 4: file is named after the client + doc type, e.g.
+    # "ALKHAIR HOSPITAL INVOICE.docx" / "ALKHAIR HOSPITAL QUOTATION.docx"
     file_path = f"{_sanitize_filename(deal['client'])} {_doc_type_word(doc_type)}.docx"
     doc.save(file_path)
     return file_path
 
 
 # =========================================================================
-# GENERIC SHEET EXPORT
+# GENERIC SHEET EXPORT (Records / Credit Sheet / Debit Sheet / Expense Sheet
+# / Liabilities Sheet)
 # =========================================================================
 
 def _draw_sheet_table_header(pdf, headers, col_widths, y, start_x=10):
@@ -600,7 +661,7 @@ def generate_sheet_pdf(df, headers, col_widths, title, filename_prefix, orientat
 
     line_h = 5
     y = table_y + 8
-    bottom_limit = pdf.h - 45
+    bottom_limit = pdf.h - 45  # leave room for the letterhead footer band
 
     for _, row in df.iterrows():
         values = ["" if pd.isna(v) else str(v) for v in row.tolist()]
@@ -636,7 +697,10 @@ def _apply_date_filter(df, date_col, start, end):
 
 
 # =========================================================================
-# DATABASE CONNECTION (Turso / SQLite fallback)
+# DATABASE CONNECTION (Turso, via plain HTTP -- no Rust/native build needed,
+# so it works on any Streamlit Cloud Python version). Falls back to local
+# sqlite3 if Turso secrets aren't configured (e.g. local dev without a
+# .streamlit/secrets.toml).
 # =========================================================================
 
 import requests
@@ -644,6 +708,9 @@ import base64
 
 
 class _TursoCursor:
+    """Mimics just enough of the sqlite3 Cursor interface (execute,
+    fetchall, fetchone, description, lastrowid) for this app's needs."""
+
     def __init__(self, conn):
         self._conn = conn
         self._rows = []
@@ -670,6 +737,12 @@ class _TursoCursor:
 
 
 class TursoHTTPConnection:
+    """Talks to a Turso database over its plain HTTP pipeline API
+    (https://docs.turso.tech/sdk/http/reference). No native/Rust
+    dependency at all -- just the `requests` library -- so it always
+    installs cleanly regardless of the Python version Streamlit Cloud
+    happens to be running."""
+
     def __init__(self, url, token):
         http_url = url.replace("libsql://", "https://").rstrip("/")
         self._pipeline_url = http_url + "/v2/pipeline"
@@ -745,16 +818,19 @@ class TursoHTTPConnection:
         return cur
 
     def commit(self):
-        pass
+        pass  # every statement is committed immediately over HTTP
 
     def sync(self):
-        pass
+        pass  # kept only so existing `if hasattr(conn, "sync")` calls stay harmless
 
     def close(self):
         pass
 
 
 def read_sql_df(query, conn, params=None):
+    """Drop-in replacement for read_sql_df() that works identically for both
+    sqlite3.Connection and TursoHTTPConnection (pandas' own read_sql only
+    recognizes real sqlite3.Connection objects)."""
     cur = conn.cursor()
     cur.execute(query, params or ())
     cols = [d[0] for d in cur.description] if cur.description else []
@@ -763,6 +839,10 @@ def read_sql_df(query, conn, params=None):
 
 
 def get_connection():
+    """Returns a database connection. If Turso secrets are configured, it
+    connects to the Turso cloud database over plain HTTP, so data survives
+    Streamlit Cloud reboots/redeploys. Falls back to local sqlite3 if
+    secrets aren't set (e.g. local dev without a .streamlit/secrets.toml)."""
     try:
         url = st.secrets.get("TURSO_DATABASE_URL")
         token = st.secrets.get("TURSO_AUTH_TOKEN")
@@ -799,6 +879,7 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS daily_expenses
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, category TEXT,
                   description TEXT, amount REAL)''')
+    # Point 3: new table backing the Liabilities tab.
     c.execute('''CREATE TABLE IF NOT EXISTS liabilities
                   (id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, description TEXT,
                   total_amount REAL, paid_amount REAL, remaining REAL)''')
@@ -828,14 +909,25 @@ def init_db():
 init_db()
 st.set_page_config(page_title="Badar Diagnostics & Medical Equipments", layout="wide")
 
+# =========================================================================
+# MOBILE-FRIENDLY STYLING -- shrinks paddings, fonts, buttons, tabs and
+# tables on small screens so the app is usable on a phone without the
+# desktop layout looking oversized. EVERYTHING inside the
+# @media (max-width: 768px) block below only fires on mobile-sized
+# viewports -- the desktop/laptop layout above/outside it is untouched.
+# =========================================================================
 st.markdown("""
 <style>
+/* Tighten the default page padding everywhere */
 .block-container {
     padding-top: 2.2rem;
     padding-bottom: 2rem;
     padding-left: 1rem;
     padding-right: 1rem;
 }
+
+/* Push the tab bar down a bit and give tab labels more breathing room so
+   they don't get clipped by the top toolbar / page edge. */
 div[data-testid="stTabs"] {
     margin-top: 0.6rem;
 }
@@ -848,6 +940,7 @@ button[data-baseweb="tab"] {
     padding-top: 10px !important;
     padding-bottom: 10px !important;
 }
+
 @media (max-width: 768px) {
     .block-container {
         padding-top: 1.2rem;
@@ -855,10 +948,14 @@ button[data-baseweb="tab"] {
         padding-right: 0.4rem;
         padding-bottom: 0.8rem;
     }
+
+    /* Titles / headers -- more compact so more fits on screen at once */
     h1 { font-size: 1.2rem !important; margin-bottom: 0.3rem !important; }
     h2 { font-size: 1.05rem !important; margin-bottom: 0.25rem !important; }
     h3 { font-size: 0.95rem !important; margin-bottom: 0.2rem !important; }
     .stMarkdown p { font-size: 0.82rem !important; }
+
+    /* Tabs -- smaller, scrollable, tighter padding, but still clear of the top edge */
     button[data-baseweb="tab"] {
         font-size: 0.72rem !important;
         padding: 0.45rem 0.4rem !important;
@@ -869,12 +966,17 @@ button[data-baseweb="tab"] {
         overflow-x: auto !important;
         flex-wrap: nowrap !important;
     }
+
+    /* Buttons -- smaller and tighter so rows of action buttons don't wrap
+       and eat vertical space */
     .stButton button, .stDownloadButton button, .stFormSubmitButton button {
         font-size: 0.74rem !important;
         padding: 0.28rem 0.5rem !important;
         white-space: normal !important;
         min-height: 2rem !important;
     }
+
+    /* Text inputs / number inputs / selects -- more compact */
     .stTextInput input, .stNumberInput input, .stSelectbox div, .stDateInput input {
         font-size: 0.78rem !important;
         padding: 0.25rem 0.4rem !important;
@@ -883,19 +985,32 @@ button[data-baseweb="tab"] {
         font-size: 0.72rem !important;
         margin-bottom: 0.1rem !important;
     }
+
+    /* Metrics -- shrink so the 4-metric rows fit without excessive wrapping */
     div[data-testid="stMetricValue"] { font-size: 1rem !important; }
     div[data-testid="stMetricLabel"] { font-size: 0.68rem !important; }
     div[data-testid="stMetric"] { padding: 0.2rem !important; }
+
+    /* Dataframes / data editors -- allow horizontal scroll instead of squeezing,
+       and shrink row/cell font so more of the table is readable at once */
     div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
         font-size: 0.68rem !important;
     }
+
+    /* Captions -- smaller, tighter line height */
     .stCaption, [data-testid="stCaptionContainer"] {
         font-size: 0.68rem !important;
         line-height: 1.2 !important;
     }
+
+    /* Containers / cards -- compact padding so nested sections don't feel
+       spread out */
     div[data-testid="stVerticalBlockBorderWrapper"] {
         padding: 0.3rem !important;
     }
+
+    /* Reduce the default vertical gap Streamlit inserts between stacked
+       elements/columns so mobile screens feel dense rather than sparse */
     div[data-testid="stVerticalBlock"] {
         gap: 0.35rem !important;
     }
@@ -905,17 +1020,28 @@ button[data-baseweb="tab"] {
     div[data-testid="column"] {
         padding: 0 0.15rem !important;
     }
+
+    /* Dividers -- tighter spacing */
     hr {
         margin-top: 0.5rem !important;
         margin-bottom: 0.5rem !important;
     }
+
+    /* Sidebar narrower on mobile */
     section[data-testid="stSidebar"] { min-width: 220px !important; }
 }
 </style>
 """, unsafe_allow_html=True)
 
+
+# =========================================================================
+# LOGIN GATE -- no username/password, no access to the app. Credentials are
+# best kept in .streamlit/secrets.toml (separate from the code), but if
+# secrets.toml is not found, the default username/password below are used
+# -- BE SURE TO CHANGE THESE.
+# =========================================================================
 _DEFAULT_USERNAME = "admin"
-_DEFAULT_PASSWORD = "changeme123"
+_DEFAULT_PASSWORD = "changeme123"  # <-- change this immediately after first login
 
 
 def _hash_password(password: str) -> str:
@@ -949,7 +1075,7 @@ def _login_gate():
     with st.form("login_form"):
         entered_username = st.text_input("Username")
         entered_password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Login", width='stretch')
+        submitted = st.form_submit_button("Login", use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
     if submitted:
@@ -1003,6 +1129,9 @@ if 'liability_df' not in st.session_state:
     st.session_state.liability_df = read_sql_df("SELECT * FROM liabilities", conn)
     conn.close()
 
+# Point 3: current tabs are Home Finance, Business Deals, Credit/Debit/Expense
+# Sheets, Analytics, Liabilities -- plus the new dedicated "Approved" tab
+# where entries whose Status is set to "Approved" are grouped together.
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit/Expense Sheets",
     "📊 Analytics", "📉 Liabilities", "✅ Approved"
@@ -1010,6 +1139,11 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 
 
 def _set_deal_status_cb(deal_id, new_status):
+    """Shared helper: updates a single deal's status column directly (used by
+    the Approved tab's status dropdown and its 'Mark as Paid' payment action).
+    Keeps paid/remaining untouched unless the new status is 'Paid', in which
+    case the deal is treated as fully settled (paid = close_deal, remaining = 0)
+    -- this is the 'payment processed' step for an approved entry."""
     deal_id = int(deal_id)
     conn = get_connection()
     cur = conn.cursor()
@@ -1028,6 +1162,8 @@ def _set_deal_status_cb(deal_id, new_status):
 
 
 def _highlight_paid_status_cell(val):
+    """Highlights ONLY the Status cell (never the whole row) when its value
+    is 'Paid'. Subtle, high-contrast green so the text stays readable."""
     if str(val).strip().lower() == 'paid':
         return 'background-color: #c6f6d5; color: #14532d; font-weight: 600;'
     return ''
@@ -1157,6 +1293,9 @@ with tab2:
             else:
                 remaining = close_deal - paid
             profit = close_deal - actual_cost
+            # Status is now a manually-controlled dropdown (Decline / Approved /
+            # Paid / Pending) rather than auto-derived from Remaining, so we take
+            # whatever value the user picked in the editor and keep it as-is.
             status = row.get('status') if row.get('status') in STATUS_OPTIONS else (
                 "Paid" if remaining <= 0.01 else "Pending")
             cur.execute("""UPDATE business_deals SET date=?, client=?, equipment=?, specs=?, qty_per_item=?,
@@ -1173,6 +1312,7 @@ with tab2:
         conn.close()
 
     def _delete_deal_cb(deal_id):
+        """Point 4: permanently deletes a whole deal (and its line items)."""
         deal_id = int(deal_id)
         conn = get_connection()
         cur = conn.cursor()
@@ -1196,6 +1336,9 @@ with tab2:
         st.session_state.confirm_delete_deal_id = None
 
     def _save_existing_items_cb(deal_id, edited_df):
+        """Point 3: lets you correct a wrong equipment/specs/qty/price entry on an
+        existing deal, and also delete individual line items (via the editor's
+        built-in row-delete). Recomputes the parent deal's totals afterwards."""
         deal_id = int(deal_id)
         conn = get_connection()
         cur = conn.cursor()
@@ -1286,7 +1429,7 @@ with tab2:
 
         paid = st.number_input("Payment sent by Client", min_value=0.0, format="%g", key="deal_paid")
 
-        st.button("➕ Add to List", width='stretch', on_click=_add_item_cb)
+        st.button("➕ Add to List", use_container_width=True, on_click=_add_item_cb)
         if st.session_state.get("add_item_warning"):
             st.warning("Equipment Name is required.")
 
@@ -1302,7 +1445,7 @@ with tab2:
             st.caption(f"Running Total: Rs {sum(i['line_total'] for i in st.session_state.temp_items):,.0f}")
 
     with st.form("deal_form", clear_on_submit=True):
-        st.form_submit_button("✅ Log Deal", width='stretch', on_click=_log_deal_cb)
+        st.form_submit_button("✅ Log Deal", use_container_width=True, on_click=_log_deal_cb)
 
     if st.session_state.get("deal_message"):
         level, text = st.session_state.deal_message
@@ -1327,12 +1470,17 @@ with tab2:
     display_df = display_df[RECORD_DISPLAY_COLUMNS]
     display_df = _apply_date_filter(display_df, 'date', records_from, records_to)
 
+    # Status is a manual dropdown (Decline / Approved / Paid / Pending) edited
+    # directly in the table below. It is no longer auto-overwritten from
+    # Remaining -- whatever was last saved in the DB is shown as-is; any
+    # legacy/blank value falls back to "Pending" so the dropdown always has
+    # a valid selection.
     if not display_df.empty:
         display_df['status'] = display_df['status'].apply(
             lambda s: s if s in STATUS_OPTIONS else 'Pending')
 
     edited_records = st.data_editor(
-        display_df, width='stretch', hide_index=True, num_rows="fixed",
+        display_df, use_container_width=True, hide_index=True, num_rows="fixed",
         disabled=["id"], key="records_editor_data",
         column_config={
             "status": st.column_config.SelectboxColumn("status", options=STATUS_OPTIONS, required=True)
@@ -1343,6 +1491,9 @@ with tab2:
         st.success("Records updated successfully!")
 
     if not edited_records.empty:
+        # Live preview of what's currently in the editor. Only the Status
+        # cell itself is highlighted (never the whole row) when it reads
+        # "Paid" -- a subtle, high-contrast green so the text stays legible.
         preview_df = edited_records.copy()
         preview_view = preview_df[RECORD_DISPLAY_COLUMNS].copy()
         preview_view = _prepare_export_df(
@@ -1351,8 +1502,8 @@ with tab2:
         preview_view = preview_view.rename(columns=dict(zip(RECORD_DISPLAY_COLUMNS, RECORD_DISPLAY_HEADERS)))
 
         st.caption("🟢 The Status cell only (not the whole row) is highlighted when it reads \"Paid\".")
-        st.dataframe(preview_view.style.map(_highlight_paid_status_cell, subset=['Status']),
-                     width='stretch', hide_index=True)
+        st.dataframe(preview_view.style.applymap(_highlight_paid_status_cell, subset=['Status']),
+                     use_container_width=True, hide_index=True)
 
     if not display_df.empty:
         export_df = display_df.sort_values('id', ascending=False)
@@ -1362,13 +1513,16 @@ with tab2:
         export_df_named = export_df.rename(columns=dict(zip(RECORD_DISPLAY_COLUMNS, RECORD_DISPLAY_HEADERS)))
         rc1, rc2 = st.columns(2)
         rc1.download_button("⬇️ Records CSV", data=_df_to_csv_bytes(export_df_named),
-                           file_name="records.csv", mime="text/csv", key="records_csv_btn")
+                             file_name="records.csv", mime="text/csv", key="records_csv_btn")
         records_pdf_path = generate_sheet_pdf(export_df, RECORD_DISPLAY_HEADERS, RECORD_COL_WIDTHS,
-                                              "Records", "records_sheet", orientation="L")
+                                               "Records", "records_sheet", orientation="L")
         with open(records_pdf_path, "rb") as f:
             rc2.download_button("⬇️ Records PDF", data=f, file_name="records.pdf",
-                                mime="application/pdf", key="records_pdf_btn")
+                                 mime="application/pdf", key="records_pdf_btn")
 
+    # =====================================================================
+    # Manage Deals -- Edit / Correct / Add Items / Delete Whole Deal
+    # =====================================================================
     st.divider()
     st.subheader("🔧 Manage Deals (Add/Edit/Delete Items)")
     st.caption("➕ Manage = add new items. ✏️ Correct = fix wrong equipment/specs/qty/price "
@@ -1396,7 +1550,7 @@ with tab2:
             rcol2.write(drow['client'])
             rcol3.write(f"Rs {drow['close_deal']:,.0f}")
             rcol4.button("✏️ Manage", key=f"edit_deal_btn_{d_id}",
-                         on_click=_select_deal_to_edit_cb, args=(d_id,))
+                        on_click=_select_deal_to_edit_cb, args=(d_id,))
 
             if st.session_state.get("confirm_delete_deal_id") == d_id:
                 dcol_a, dcol_b = rcol5.columns(2)
@@ -1421,7 +1575,7 @@ with tab2:
 
                 st.write("**✏️ Existing Items (correct mistakes here, or delete a row):**")
                 edited_existing_items = st.data_editor(
-                    existing_items_df, width='stretch', hide_index=True,
+                    existing_items_df, use_container_width=True, hide_index=True,
                     num_rows="dynamic", disabled=["id", "line_total"],
                     key=f"existing_items_editor_{edit_deal_id}"
                 )
@@ -1542,7 +1696,7 @@ with tab2:
                                        f"The Invoice/Quotation/Challan for this deal will now print with the updated items.")
 
                     st.button("💾 Update Deal (Save New Items)", key="update_deal_btn",
-                               on_click=_update_deal_cb, type="primary")
+                             on_click=_update_deal_cb, type="primary")
 
                 def _cancel_edit_deal_cb():
                     st.session_state.editing_deal_id = None
@@ -1581,13 +1735,13 @@ with tab2:
         pdf_path = generate_pdf(deal_row, items_df, doc_type=doc_choice, terms_text=terms_text)
         with open(pdf_path, "rb") as f:
             dl1.download_button(f"📥 Download {doc_choice} (PDF)", f, file_name=pdf_path,
-                                mime="application/pdf", width='stretch')
+                                 mime="application/pdf", use_container_width=True)
 
         docx_path = generate_docx(deal_row, items_df, doc_type=doc_choice, terms_text=terms_text)
         with open(docx_path, "rb") as f:
             dl2.download_button(f"📄 Download {doc_choice} (Word)", f, file_name=docx_path,
-                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                width='stretch')
+                                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                 use_container_width=True)
     else:
         st.info("No records yet.")
 
@@ -1681,7 +1835,7 @@ with tab3:
     def _add_expense_cb():
         category = st.session_state.expense_category_input
         description = (st.session_state.expense_desc_manual_input
-                       if category == "Others" else category)
+                        if category == "Others" else category)
         if not description or not str(description).strip():
             st.session_state.expense_add_warning = True
             return
@@ -1722,6 +1876,7 @@ with tab3:
         "🧾 Daily Expense Sheet"
     ])
 
+    # ---------------- CREDIT SHEET ----------------
     with credit_tab:
         _credit_dates = pd.to_datetime(deals['date'], errors='coerce') if not deals.empty else pd.Series([], dtype='datetime64[ns]')
         _credit_default_from = _credit_dates.min().date() if not _credit_dates.empty and _credit_dates.notna().any() else date.today()
@@ -1755,7 +1910,7 @@ with tab3:
         full_credit_view = pd.concat([auto_credit_view, manual_c_view], ignore_index=True)
 
         st.subheader("📋 Full Credit Sheet")
-        st.dataframe(full_credit_view, width='stretch', hide_index=True)
+        st.dataframe(full_credit_view, use_container_width=True, hide_index=True)
 
         if not full_credit_view.empty:
             full_credit_export = _prepare_export_df(
@@ -1763,12 +1918,12 @@ with tab3:
                 money_cols=["Total Payment", "Paid by Client", "Remaining from Client"])
             cec1, cec2 = st.columns(2)
             cec1.download_button("⬇️ Credit Sheet CSV", data=_df_to_csv_bytes(full_credit_export),
-                                 file_name="credit_sheet.csv", mime="text/csv", key="credit_csv_btn")
+                                  file_name="credit_sheet.csv", mime="text/csv", key="credit_csv_btn")
             credit_pdf_path = generate_sheet_pdf(full_credit_export, CREDIT_HEADERS, CREDIT_COL_WIDTHS,
-                                                 "Credit Sheet", "credit_sheet", orientation="L")
+                                                  "Credit Sheet", "credit_sheet", orientation="L")
             with open(credit_pdf_path, "rb") as f:
                 cec2.download_button("⬇️ Credit Sheet PDF", data=f, file_name="credit_sheet.pdf",
-                                     mime="application/pdf", key="credit_pdf_btn")
+                                      mime="application/pdf", key="credit_pdf_btn")
 
         st.divider()
         st.subheader("➕ Add Manual Entry (outside deals, amounts receivable)")
@@ -1784,11 +1939,12 @@ with tab3:
             st.write("**Manual Entries (editable)**")
             edited_credit = st.data_editor(
                 st.session_state.credit_manual_df.drop(columns=['id']),
-                width='stretch', hide_index=True, num_rows="dynamic", key="credit_editor_data")
+                use_container_width=True, hide_index=True, num_rows="dynamic", key="credit_editor_data")
             if st.button("💾 Save Credit Changes", key="save_credit_btn"):
                 _save_credit_edits(edited_credit)
                 st.success("Credit Sheet updated!")
 
+    # ---------------- DEBIT SHEET ----------------
     with debit_tab:
         _debit_dates = pd.to_datetime(deals['date'], errors='coerce') if not deals.empty else pd.Series([], dtype='datetime64[ns]')
         _debit_default_from = _debit_dates.min().date() if not _debit_dates.empty and _debit_dates.notna().any() else date.today()
@@ -1822,7 +1978,7 @@ with tab3:
         full_debit_view = pd.concat([auto_debit_view, manual_d_view], ignore_index=True)
 
         st.subheader("📋 Full Debit Sheet")
-        st.dataframe(full_debit_view, width='stretch', hide_index=True)
+        st.dataframe(full_debit_view, use_container_width=True, hide_index=True)
 
         if not full_debit_view.empty:
             full_debit_export = _prepare_export_df(
@@ -1830,12 +1986,12 @@ with tab3:
                 money_cols=["Total Payment", "Paid to Client", "Remaining to be paid"])
             dec1, dec2 = st.columns(2)
             dec1.download_button("⬇️ Debit Sheet CSV", data=_df_to_csv_bytes(full_debit_export),
-                                 file_name="debit_sheet.csv", mime="text/csv", key="debit_csv_btn")
+                                  file_name="debit_sheet.csv", mime="text/csv", key="debit_csv_btn")
             debit_pdf_path = generate_sheet_pdf(full_debit_export, DEBIT_HEADERS, DEBIT_COL_WIDTHS,
-                                                "Debit Sheet", "debit_sheet", orientation="L")
+                                                 "Debit Sheet", "debit_sheet", orientation="L")
             with open(debit_pdf_path, "rb") as f:
                 dec2.download_button("⬇️ Debit Sheet PDF", data=f, file_name="debit_sheet.pdf",
-                                     mime="application/pdf", key="debit_pdf_btn")
+                                      mime="application/pdf", key="debit_pdf_btn")
 
         st.divider()
         st.subheader("➕ Add Manual Entry (outside deals, amounts payable)")
@@ -1851,15 +2007,16 @@ with tab3:
             st.write("**Manual Entries (editable)**")
             edited_debit = st.data_editor(
                 st.session_state.debit_manual_df.drop(columns=['id']),
-                width='stretch', hide_index=True, num_rows="dynamic", key="debit_editor_data")
+                use_container_width=True, hide_index=True, num_rows="dynamic", key="debit_editor_data")
             if st.button("💾 Save Debit Changes", key="save_debit_btn"):
                 _save_debit_edits(edited_debit)
                 st.success("Debit Sheet updated!")
 
+    # ---------------- DAILY EXPENSE SHEET ----------------
     with expense_tab:
         st.subheader("🧾 Daily Expense Sheet")
         st.caption("Selecting Eating/Fuel auto-fills the description. "
-                   "Selecting Others requires you to type your own description.")
+                    "Selecting Others requires you to type your own description.")
 
         ec1, ec2, ec3, ec4 = st.columns([1.2, 1.6, 1, 1])
         category = ec1.selectbox("Category", ["Eating", "Fuel", "Others"], key="expense_category_input")
@@ -1888,7 +2045,7 @@ with tab3:
         filtered_expense_df = _apply_date_filter(
             st.session_state.expense_df.drop(columns=['id'], errors='ignore'), 'date', expense_from, expense_to)
 
-        st.dataframe(filtered_expense_df, width='stretch', hide_index=True)
+        st.dataframe(filtered_expense_df, use_container_width=True, hide_index=True)
 
         _expense_total = filtered_expense_df['amount'].sum() if not filtered_expense_df.empty else 0
         st.metric("💵 Total Expense (selected range)", f"Rs {_expense_total:,.0f}")
@@ -1897,21 +2054,21 @@ with tab3:
             expense_export = _prepare_export_df(filtered_expense_df, date_cols=['date'], money_cols=['amount'])
             eec1, eec2 = st.columns(2)
             eec1.download_button("⬇️ Expense Sheet CSV",
-                                 data=_df_to_csv_bytes(expense_export),
-                                 file_name="expense_sheet.csv", mime="text/csv", key="expense_csv_btn")
+                                  data=_df_to_csv_bytes(expense_export),
+                                  file_name="expense_sheet.csv", mime="text/csv", key="expense_csv_btn")
             expense_pdf_df = expense_export[['description', 'amount']].rename(
                 columns={'description': 'Description', 'amount': 'Amount'})
             expense_pdf_path = generate_sheet_pdf(expense_pdf_df, EXPENSE_HEADERS, EXPENSE_COL_WIDTHS,
                                                    "Expense Sheet", "expense_sheet", orientation="P")
             with open(expense_pdf_path, "rb") as f:
                 eec2.download_button("⬇️ Expense Sheet PDF", data=f, file_name="expense_sheet.pdf",
-                                     mime="application/pdf", key="expense_pdf_btn")
+                                      mime="application/pdf", key="expense_pdf_btn")
 
         if not st.session_state.expense_df.empty:
             st.write("**Manual Entries (editable)**")
             edited_expense = st.data_editor(
                 st.session_state.expense_df.drop(columns=['id']),
-                width='stretch', hide_index=True, num_rows="dynamic", key="expense_editor_data",
+                use_container_width=True, hide_index=True, num_rows="dynamic", key="expense_editor_data",
                 column_config={
                     "category": st.column_config.SelectboxColumn("category", options=["Eating", "Fuel", "Others"])
                 })
@@ -1951,7 +2108,7 @@ with tab4:
     if not st.session_state.business_df.empty:
         st.metric("Total Revenue", f"Rs {int(st.session_state.business_df['close_deal'].sum()):,}")
         fig = px.bar(st.session_state.business_df, x='id', y='close_deal', template="plotly_dark")
-        st.plotly_chart(fig, width='stretch')
+        st.plotly_chart(fig, use_container_width=True)
 
 # ---------------- TAB 5: LIABILITIES ----------------
 with tab5:
@@ -2020,37 +2177,37 @@ with tab5:
 
     filtered_liab_df = _apply_date_filter(
         liab_df.drop(columns=['id'], errors='ignore'), 'date', liability_from, liability_to)
-    st.dataframe(filtered_liab_df, width='stretch', hide_index=True)
+    st.dataframe(filtered_liab_df, use_container_width=True, hide_index=True)
 
     _liab_total_remaining = filtered_liab_df['remaining'].sum() if not filtered_liab_df.empty else 0
     st.metric("📉 Total Outstanding Liabilities (selected range)", f"Rs {_liab_total_remaining:,.0f}")
 
     if not filtered_liab_df.empty:
         liab_export = _prepare_export_df(filtered_liab_df, date_cols=['date'],
-                                         money_cols=['total_amount', 'paid_amount', 'remaining'])
+                                          money_cols=['total_amount', 'paid_amount', 'remaining'])
         liab_export_named = liab_export.rename(columns={
             'date': 'Date', 'description': 'Description', 'total_amount': 'Total Amount',
             'paid_amount': 'Paid Amount', 'remaining': 'Remaining'})
         lec1, lec2 = st.columns(2)
         lec1.download_button("⬇️ Liabilities CSV", data=_df_to_csv_bytes(liab_export_named),
-                             file_name="liabilities.csv", mime="text/csv", key="liability_csv_btn")
+                              file_name="liabilities.csv", mime="text/csv", key="liability_csv_btn")
         liab_pdf_df = liab_export_named[LIABILITY_HEADERS]
         liability_pdf_path = generate_sheet_pdf(liab_pdf_df, LIABILITY_HEADERS, LIABILITY_COL_WIDTHS,
-                                                "Liabilities Sheet", "liabilities_sheet", orientation="P")
+                                                  "Liabilities Sheet", "liabilities_sheet", orientation="P")
         with open(liability_pdf_path, "rb") as f:
             lec2.download_button("⬇️ Liabilities PDF", data=f, file_name="liabilities.pdf",
-                                 mime="application/pdf", key="liability_pdf_btn")
+                                  mime="application/pdf", key="liability_pdf_btn")
 
     if not st.session_state.liability_df.empty:
         st.write("**Manual Entries (editable)**")
         edited_liability = st.data_editor(
             st.session_state.liability_df.drop(columns=['id']),
-            width='stretch', hide_index=True, num_rows="dynamic", key="liability_editor_data")
+            use_container_width=True, hide_index=True, num_rows="dynamic", key="liability_editor_data")
         if st.button("💾 Save Liabilities Changes", key="save_liability_btn"):
             _save_liability_edits(edited_liability)
             st.success("Liabilities updated!")
 
-# ---------------- TAB 6: APPROVED ----------------
+# ---------------- TAB 6: APPROVED (dedicated grouping for Approved status) ----------------
 with tab6:
     st.title("✅ Approved")
     st.caption(
@@ -2082,12 +2239,12 @@ with tab6:
                 pay_col.button(
                     "💰 Process Payment & Mark as Paid", key=f"approved_mark_paid_{a_id}",
                     on_click=_set_deal_status_cb, args=(a_id, "Paid"),
-                    width='stretch', type="primary"
+                    use_container_width=True, type="primary"
                 )
                 decline_col.button(
                     "✖️ Decline Instead", key=f"approved_decline_{a_id}",
                     on_click=_set_deal_status_cb, args=(a_id, "Decline"),
-                    width='stretch'
+                    use_container_width=True
                 )
 
         st.divider()
@@ -2096,6 +2253,9 @@ with tab6:
         approved_view_cols = ['id', 'date', 'client', 'close_deal', 'paid', 'remaining', 'status']
         approved_view_headers = ['No.', 'Date', 'Client', 'Close Deal', 'Paid', 'Remaining', 'Status']
 
+        # Show current-DB entries that are Approved OR were just moved to Paid
+        # from this tab, so the "mark as paid" transition stays visible here
+        # (payment handling happens right in this dedicated view).
         approved_sheet_df = st.session_state.business_df[
             st.session_state.business_df['status'].isin(['Approved', 'Paid'])
         ].copy()
@@ -2107,6 +2267,6 @@ with tab6:
 
         st.caption("🟢 The Status cell only (not the whole row) is highlighted when it reads \"Paid\".")
         st.dataframe(
-            approved_sheet_view.style.map(_highlight_paid_status_cell, subset=['Status']),
-            width='stretch', hide_index=True
+            approved_sheet_view.style.applymap(_highlight_paid_status_cell, subset=['Status']),
+            use_container_width=True, hide_index=True
         )
