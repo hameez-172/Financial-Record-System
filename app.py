@@ -943,7 +943,7 @@ button[data-baseweb="tab"] {
 
 @media (max-width: 768px) {
     .block-container {
-        padding-top: 1.2rem;
+        padding-top: 3.5rem;
         padding-left: 0.4rem;
         padding-right: 0.4rem;
         padding-bottom: 0.8rem;
@@ -961,7 +961,7 @@ button[data-baseweb="tab"] {
         padding: 0.45rem 0.4rem !important;
     }
     div[data-baseweb="tab-list"] {
-        margin-top: 8px !important;
+        margin-top: 1.5rem !important;
         gap: 1px !important;
         overflow-x: auto !important;
         flex-wrap: nowrap !important;
