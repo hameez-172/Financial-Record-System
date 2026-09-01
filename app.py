@@ -2268,6 +2268,6 @@ with tab6:
         st.caption("🟢 The Status cell only (not the whole row) is highlighted when it reads \"Paid\".")
         st.dataframe(
             approved_sheet_view.style.map(_highlight_paid_status_cell, subset=['Status']),
-            width='stretch', hide_index=True
-)
+            width='stretch', hide_index=True)
+            
         
