@@ -49,6 +49,9 @@ LIABILITY_COL_WIDTHS = [25, 75, 30, 30, 30]  # sums to 190mm (A4 portrait usable
 # gets printed on the document).
 DOC_NUMBER_PREFIX = {"Invoice": "INV", "Quotation": "QUO", "Delivery Challan": "DC"}
 
+# Status options for the manual status dropdown on every deal entry.
+STATUS_OPTIONS = ["Decline", "Approved", "Paid", "Pending"]
+
 
 # =========================================================================
 # FORMATTING HELPERS
@@ -909,7 +912,9 @@ st.set_page_config(page_title="Badar Diagnostics & Medical Equipments", layout="
 # =========================================================================
 # MOBILE-FRIENDLY STYLING -- shrinks paddings, fonts, buttons, tabs and
 # tables on small screens so the app is usable on a phone without the
-# desktop layout looking oversized.
+# desktop layout looking oversized. EVERYTHING inside the
+# @media (max-width: 768px) block below only fires on mobile-sized
+# viewports -- the desktop/laptop layout above/outside it is untouched.
 # =========================================================================
 st.markdown("""
 <style>
@@ -938,61 +943,88 @@ button[data-baseweb="tab"] {
 
 @media (max-width: 768px) {
     .block-container {
-        padding-top: 1.4rem;
-        padding-left: 0.5rem;
-        padding-right: 0.5rem;
-        padding-bottom: 1rem;
+        padding-top: 1.2rem;
+        padding-left: 0.4rem;
+        padding-right: 0.4rem;
+        padding-bottom: 0.8rem;
     }
 
-    /* Titles / headers */
-    h1 { font-size: 1.35rem !important; }
-    h2 { font-size: 1.15rem !important; }
-    h3 { font-size: 1rem !important; }
-    .stMarkdown p { font-size: 0.85rem !important; }
+    /* Titles / headers -- more compact so more fits on screen at once */
+    h1 { font-size: 1.2rem !important; margin-bottom: 0.3rem !important; }
+    h2 { font-size: 1.05rem !important; margin-bottom: 0.25rem !important; }
+    h3 { font-size: 0.95rem !important; margin-bottom: 0.2rem !important; }
+    .stMarkdown p { font-size: 0.82rem !important; }
 
     /* Tabs -- smaller, scrollable, tighter padding, but still clear of the top edge */
     button[data-baseweb="tab"] {
-        font-size: 0.78rem !important;
-        padding: 0.55rem 0.5rem !important;
+        font-size: 0.72rem !important;
+        padding: 0.45rem 0.4rem !important;
     }
     div[data-baseweb="tab-list"] {
         margin-top: 8px !important;
-        gap: 2px !important;
+        gap: 1px !important;
         overflow-x: auto !important;
         flex-wrap: nowrap !important;
     }
 
-    /* Buttons */
+    /* Buttons -- smaller and tighter so rows of action buttons don't wrap
+       and eat vertical space */
     .stButton button, .stDownloadButton button, .stFormSubmitButton button {
-        font-size: 0.8rem !important;
-        padding: 0.35rem 0.6rem !important;
+        font-size: 0.74rem !important;
+        padding: 0.28rem 0.5rem !important;
         white-space: normal !important;
+        min-height: 2rem !important;
     }
 
-    /* Text inputs / number inputs / selects */
+    /* Text inputs / number inputs / selects -- more compact */
     .stTextInput input, .stNumberInput input, .stSelectbox div, .stDateInput input {
-        font-size: 0.82rem !important;
-        padding: 0.3rem 0.5rem !important;
+        font-size: 0.78rem !important;
+        padding: 0.25rem 0.4rem !important;
     }
     label, .stTextInput label, .stNumberInput label, .stSelectbox label, .stDateInput label {
-        font-size: 0.78rem !important;
+        font-size: 0.72rem !important;
+        margin-bottom: 0.1rem !important;
     }
 
-    /* Metrics */
-    div[data-testid="stMetricValue"] { font-size: 1.1rem !important; }
-    div[data-testid="stMetricLabel"] { font-size: 0.72rem !important; }
+    /* Metrics -- shrink so the 4-metric rows fit without excessive wrapping */
+    div[data-testid="stMetricValue"] { font-size: 1rem !important; }
+    div[data-testid="stMetricLabel"] { font-size: 0.68rem !important; }
+    div[data-testid="stMetric"] { padding: 0.2rem !important; }
 
-    /* Dataframes / data editors -- allow horizontal scroll instead of squeezing */
+    /* Dataframes / data editors -- allow horizontal scroll instead of squeezing,
+       and shrink row/cell font so more of the table is readable at once */
     div[data-testid="stDataFrame"], div[data-testid="stDataEditor"] {
-        font-size: 0.75rem !important;
+        font-size: 0.68rem !important;
     }
 
-    /* Captions */
-    .stCaption, [data-testid="stCaptionContainer"] { font-size: 0.72rem !important; }
+    /* Captions -- smaller, tighter line height */
+    .stCaption, [data-testid="stCaptionContainer"] {
+        font-size: 0.68rem !important;
+        line-height: 1.2 !important;
+    }
 
-    /* Containers / cards */
+    /* Containers / cards -- compact padding so nested sections don't feel
+       spread out */
     div[data-testid="stVerticalBlockBorderWrapper"] {
-        padding: 0.4rem !important;
+        padding: 0.3rem !important;
+    }
+
+    /* Reduce the default vertical gap Streamlit inserts between stacked
+       elements/columns so mobile screens feel dense rather than sparse */
+    div[data-testid="stVerticalBlock"] {
+        gap: 0.35rem !important;
+    }
+    div[data-testid="stHorizontalBlock"] {
+        gap: 0.3rem !important;
+    }
+    div[data-testid="column"] {
+        padding: 0 0.15rem !important;
+    }
+
+    /* Dividers -- tighter spacing */
+    hr {
+        margin-top: 0.5rem !important;
+        margin-bottom: 0.5rem !important;
     }
 
     /* Sidebar narrower on mobile */
@@ -1098,11 +1130,44 @@ if 'liability_df' not in st.session_state:
     conn.close()
 
 # Point 3: current tabs are Home Finance, Business Deals, Credit/Debit/Expense
-# Sheets, Analytics -- plus the new Liabilities tab.
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+# Sheets, Analytics, Liabilities -- plus the new dedicated "Approved" tab
+# where entries whose Status is set to "Approved" are grouped together.
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🏠 Home Finance", "💼 Business Deals", "💳 Credit/Debit/Expense Sheets",
-    "📊 Analytics", "📉 Liabilities"
+    "📊 Analytics", "📉 Liabilities", "✅ Approved"
 ])
+
+
+def _set_deal_status_cb(deal_id, new_status):
+    """Shared helper: updates a single deal's status column directly (used by
+    the Approved tab's status dropdown and its 'Mark as Paid' payment action).
+    Keeps paid/remaining untouched unless the new status is 'Paid', in which
+    case the deal is treated as fully settled (paid = close_deal, remaining = 0)
+    -- this is the 'payment processed' step for an approved entry."""
+    deal_id = int(deal_id)
+    conn = get_connection()
+    cur = conn.cursor()
+    if new_status == "Paid":
+        row = st.session_state.business_df[st.session_state.business_df['id'] == deal_id].iloc[0]
+        close_deal = row['close_deal']
+        cur.execute("UPDATE business_deals SET status=?, paid=?, remaining=? WHERE id=?",
+                    (new_status, close_deal, 0.0, deal_id))
+    else:
+        cur.execute("UPDATE business_deals SET status=? WHERE id=?", (new_status, deal_id))
+    conn.commit()
+    if hasattr(conn, "sync"):
+        conn.sync()
+    st.session_state.business_df = read_sql_df("SELECT * FROM business_deals", conn)
+    conn.close()
+
+
+def _highlight_paid_status_cell(val):
+    """Highlights ONLY the Status cell (never the whole row) when its value
+    is 'Paid'. Subtle, high-contrast green so the text stays readable."""
+    if str(val).strip().lower() == 'paid':
+        return 'background-color: #c6f6d5; color: #14532d; font-weight: 600;'
+    return ''
+
 
 # ---------------- TAB 2: BUSINESS DEALS ----------------
 with tab2:
@@ -1228,7 +1293,11 @@ with tab2:
             else:
                 remaining = close_deal - paid
             profit = close_deal - actual_cost
-            status = "Paid" if remaining <= 0.01 else "Pending"
+            # Status is now a manually-controlled dropdown (Decline / Approved /
+            # Paid / Pending) rather than auto-derived from Remaining, so we take
+            # whatever value the user picked in the editor and keep it as-is.
+            status = row.get('status') if row.get('status') in STATUS_OPTIONS else (
+                "Paid" if remaining <= 0.01 else "Pending")
             cur.execute("""UPDATE business_deals SET date=?, client=?, equipment=?, specs=?, qty_per_item=?,
                            close_deal=?, actual_cost=?, actual_price_per_item=?, other_expenses_per_item=?,
                            paid=?, remaining=?, profit=?, team_member=?, status=? WHERE id=?""",
@@ -1401,39 +1470,39 @@ with tab2:
     display_df = display_df[RECORD_DISPLAY_COLUMNS]
     display_df = _apply_date_filter(display_df, 'date', records_from, records_to)
 
-    # Auto status: whenever Remaining is 0 (or less), Status shows as Paid --
-    # this applies even before the row has been edited/saved.
+    # Status is a manual dropdown (Decline / Approved / Paid / Pending) edited
+    # directly in the table below. It is no longer auto-overwritten from
+    # Remaining -- whatever was last saved in the DB is shown as-is; any
+    # legacy/blank value falls back to "Pending" so the dropdown always has
+    # a valid selection.
     if not display_df.empty:
-        display_df['status'] = display_df['remaining'].apply(
-            lambda r: 'Paid' if pd.notna(r) and float(r) <= 0.01 else 'Pending')
+        display_df['status'] = display_df['status'].apply(
+            lambda s: s if s in STATUS_OPTIONS else 'Pending')
 
     edited_records = st.data_editor(
         display_df, use_container_width=True, hide_index=True, num_rows="fixed",
-        disabled=["id"], key="records_editor_data"
+        disabled=["id"], key="records_editor_data",
+        column_config={
+            "status": st.column_config.SelectboxColumn("status", options=STATUS_OPTIONS, required=True)
+        }
     )
     if st.button("💾 Save Records Changes", key="save_records_btn"):
         _save_records_edits(edited_records)
         st.success("Records updated successfully!")
 
     if not edited_records.empty:
-        # Live color-coded preview: Status recalculates from Remaining as you
-        # type, and fully-paid rows (Remaining = 0) are highlighted green.
+        # Live preview of what's currently in the editor. Only the Status
+        # cell itself is highlighted (never the whole row) when it reads
+        # "Paid" -- a subtle, high-contrast green so the text stays legible.
         preview_df = edited_records.copy()
-        preview_df['status'] = preview_df['remaining'].apply(
-            lambda r: 'Paid' if pd.notna(r) and float(r) <= 0.01 else 'Pending')
         preview_view = preview_df[RECORD_DISPLAY_COLUMNS].copy()
         preview_view = _prepare_export_df(
             preview_view, date_cols=['date'],
             money_cols=['close_deal', 'actual_cost', 'paid', 'remaining', 'profit'])
         preview_view = preview_view.rename(columns=dict(zip(RECORD_DISPLAY_COLUMNS, RECORD_DISPLAY_HEADERS)))
 
-        def _highlight_paid_rows(row):
-            if str(row.get('Status', '')).strip().lower() == 'paid':
-                return ['background-color: #c6f6d5'] * len(row)
-            return [''] * len(row)
-
-        st.caption("🟢 Green rows are fully paid (Remaining = 0) -- Status updates automatically.")
-        st.dataframe(preview_view.style.apply(_highlight_paid_rows, axis=1),
+        st.caption("🟢 The Status cell only (not the whole row) is highlighted when it reads \"Paid\".")
+        st.dataframe(preview_view.style.map(_highlight_paid_status_cell, subset=['Status']),
                      use_container_width=True, hide_index=True)
 
     if not display_df.empty:
@@ -2137,3 +2206,67 @@ with tab5:
         if st.button("💾 Save Liabilities Changes", key="save_liability_btn"):
             _save_liability_edits(edited_liability)
             st.success("Liabilities updated!")
+
+# ---------------- TAB 6: APPROVED (dedicated grouping for Approved status) ----------------
+with tab6:
+    st.title("✅ Approved")
+    st.caption(
+        "Entries whose Status is set to \"Approved\" (in the Business Deals → Records table) "
+        "are grouped here automatically. Once a payment is processed for an approved entry, "
+        "mark it as Paid right here -- its Status cell will then be highlighted."
+    )
+
+    approved_df = st.session_state.business_df[
+        st.session_state.business_df['status'] == 'Approved'
+    ].copy() if not st.session_state.business_df.empty else st.session_state.business_df
+
+    if approved_df.empty:
+        st.info("No entries are currently marked \"Approved\". Set a Record's Status dropdown "
+                "to \"Approved\" in the Business Deals tab to see it grouped here.")
+    else:
+        st.subheader(f"📋 Approved Entries ({len(approved_df)})")
+
+        for _, arow in approved_df.sort_values('id', ascending=False).iterrows():
+            a_id = int(arow['id'])
+            with st.container(border=True):
+                ac1, ac2, ac3, ac4 = st.columns([2.5, 1.5, 1.5, 1.5])
+                ac1.markdown(f"**#{a_id} — {arow['client']}**")
+                ac2.write(f"Close Deal: Rs {arow['close_deal']:,.0f}")
+                ac3.write(f"Paid: Rs {arow['paid']:,.0f}")
+                ac4.write(f"Remaining: Rs {arow['remaining']:,.0f}")
+
+                pay_col, decline_col = st.columns(2)
+                pay_col.button(
+                    "💰 Process Payment & Mark as Paid", key=f"approved_mark_paid_{a_id}",
+                    on_click=_set_deal_status_cb, args=(a_id, "Paid"),
+                    use_container_width=True, type="primary"
+                )
+                decline_col.button(
+                    "✖️ Decline Instead", key=f"approved_decline_{a_id}",
+                    on_click=_set_deal_status_cb, args=(a_id, "Decline"),
+                    use_container_width=True
+                )
+
+        st.divider()
+        st.subheader("📋 Approved Sheet (with Paid entries highlighted)")
+
+        approved_view_cols = ['id', 'date', 'client', 'close_deal', 'paid', 'remaining', 'status']
+        approved_view_headers = ['No.', 'Date', 'Client', 'Close Deal', 'Paid', 'Remaining', 'Status']
+
+        # Show current-DB entries that are Approved OR were just moved to Paid
+        # from this tab, so the "mark as paid" transition stays visible here
+        # (payment handling happens right in this dedicated view).
+        approved_sheet_df = st.session_state.business_df[
+            st.session_state.business_df['status'].isin(['Approved', 'Paid'])
+        ].copy()
+        approved_sheet_view = approved_sheet_df[approved_view_cols].sort_values('id', ascending=False)
+        approved_sheet_view = _prepare_export_df(
+            approved_sheet_view, date_cols=['date'], money_cols=['close_deal', 'paid', 'remaining'])
+        approved_sheet_view = approved_sheet_view.rename(
+            columns=dict(zip(approved_view_cols, approved_view_headers)))
+
+        st.caption("🟢 The Status cell only (not the whole row) is highlighted when it reads \"Paid\".")
+        st.dataframe(
+            approved_sheet_view.style.map(_highlight_paid_status_cell, subset=['Status']),
+            use_container_width=True, hide_index=True
+        )
