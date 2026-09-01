@@ -1503,7 +1503,7 @@ with tab2:
 
         st.caption("🟢 The Status cell only (not the whole row) is highlighted when it reads \"Paid\".")
         st.dataframe(preview_view.style.map(_highlight_paid_status_cell, subset=['Status']),
-                     width='stretch', hide_index=True)
+                     use_container_width=True, hide_index=True)
 
     if not display_df.empty:
         export_df = display_df.sort_values('id', ascending=False)
@@ -2268,5 +2268,5 @@ with tab6:
         st.caption("🟢 The Status cell only (not the whole row) is highlighted when it reads \"Paid\".")
         st.dataframe(
             approved_sheet_view.style.map(_highlight_paid_status_cell, subset=['Status']),
-            width='stretch', hide_index=True
+            use_container_width=True, hide_index=True
         )
