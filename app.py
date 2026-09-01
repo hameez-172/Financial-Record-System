@@ -1502,7 +1502,7 @@ with tab2:
         preview_view = preview_view.rename(columns=dict(zip(RECORD_DISPLAY_COLUMNS, RECORD_DISPLAY_HEADERS)))
 
         st.caption("🟢 The Status cell only (not the whole row) is highlighted when it reads \"Paid\".")
-        st.dataframe(preview_view.style.applymap(_highlight_paid_status_cell, subset=['Status']),
+        st.dataframe(preview_view.style.map(_highlight_paid_status_cell, subset=['Status']),
                      use_container_width=True, hide_index=True)
 
     if not display_df.empty:
@@ -2267,6 +2267,6 @@ with tab6:
 
         st.caption("🟢 The Status cell only (not the whole row) is highlighted when it reads \"Paid\".")
         st.dataframe(
-            approved_sheet_view.style.applymap(_highlight_paid_status_cell, subset=['Status']),
+            approved_sheet_view.style.map(_highlight_paid_status_cell, subset=['Status']),
             use_container_width=True, hide_index=True
         )
