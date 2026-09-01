@@ -6,4 +6,4 @@ gspread
 oauth2client
 requests
 python-docx
-pandas==2.2.2
+pandas
